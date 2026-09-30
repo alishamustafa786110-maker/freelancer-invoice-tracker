@@ -128,7 +128,7 @@
   </div>
 
   <script>
-    var invoices = [];
+   var invoices = JSON.parse(localStorage.getItem("hisaab-invoices") || "[]");
     var USD_RATE = 280;
 
     function toPKR(inv) {
@@ -150,7 +150,7 @@
 
     function showInvoices() {
       var rows = "";
-      var paid = 0, pending = 0, overdue = 0;
+    localStorage.setItem("hisaab-invoices", JSON.stringify(invoices));
 
       for (var i = 0; i < invoices.length; i++) {
         var inv = invoices[i];
