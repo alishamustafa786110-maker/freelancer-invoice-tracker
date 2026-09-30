@@ -78,6 +78,11 @@
     .paid { background: #dff2ea; color: #0f6b4f; }
     .pending { background: #fdf0d2; color: #8a5a00; }
     .overdue { background: #fbe1e1; color: #a32f2f; }
+    #printArea { display: none; }
+    @media print {
+      body > *:not(#printArea) { display: none; }
+      #printArea { display: block; color: black; background: white; }
+    }
   </style>
 </head>
 <body>
@@ -137,6 +142,13 @@
     <p id="taxRate" style="font-size:13px;margin:0"></p>
     <p style="font-size:13px">Estimate only. These slabs are a sample and change often. Check the current FBR slabs or ask an accountant before filing.</p>
   </div>
+  <div class="box">
+    <h2>Income proof</h2>
+    <p>A report of all your paid invoices. Print it or save it as a PDF.</p>
+    <button id="printReport" style="background:#0f6b4f;color:white;border:none;border-radius:6px;padding:10px 14px;font-size:15px;cursor:pointer">Print income report</button>
+  </div>
+
+  <div id="printArea"></div>
   <script>
    var invoices = JSON.parse(localStorage.getItem("hisaab-invoices") || "[]");
     var USD_RATE = 280;
@@ -255,6 +267,40 @@ var SLABS = [
         income > 0 ? "Effective rate: " + (tax / income * 100).toFixed(1) + "%" : "";
     };
     showInvoices();
+    function printInvoice(index) {
+      var inv = invoices[index];
+      document.getElementById("printArea").innerHTML =
+        "<h1>Invoice #" + (index + 1) + "</h1>" +
+        "<p>To: " + inv.client + "</p>" +
+        "<p>Work: " + (inv.work || "-") + "</p>" +
+        "<p>Amount: " + inv.currency + " " + inv.amount + "</p>" +
+        "<p>Due: " + (inv.due || "-") + "</p>" +
+        "<p>Status: " + getStatus(inv) + "</p>";
+      window.print();
+    }
+
+    document.getElementById("printReport").onclick = function () {
+      var total = 0;
+      var rows = "";
+      for (var i = 0; i < invoices.length; i++) {
+        var inv = invoices[i];
+        if (getStatus(inv) === "paid") {
+          total += toPKR(inv);
+          rows += "<tr><td>" + inv.client + "</td><td>" + (inv.work || "-") +
+            "</td><td>" + inv.currency + " " + inv.amount +
+            "</td><td>PKR " + Math.round(toPKR(inv)).toLocaleString() + "</td></tr>";
+        }
+      }
+      document.getElementById("printArea").innerHTML =
+        "<h1>Income report</h1>" +
+        "<p>Generated: " + new Date().toISOString().slice(0, 10) + "</p>" +
+        "<table border='1' cellpadding='6' style='border-collapse:collapse;width:100%'>" +
+        "<tr><th>Client</th><th>Work</th><th>Amount</th><th>In PKR</th></tr>" +
+        rows + "</table>" +
+        "<p><b>Total received: PKR " + Math.round(total).toLocaleString() + "</b></p>" +
+        "<p style='font-size:12px'>Self-reported from Hisaab records. Not an audited statement.</p>";
+      window.print();
+    };
   </script>
 </body>
 </html>
