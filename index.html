@@ -13,15 +13,13 @@
       margin: 0 auto;
       padding: 16px;
     }
-    h1 {
-      color: #0f6b4f;
-      margin-bottom: 4px;
-    }
+    h1 { color: #0f6b4f; margin-bottom: 4px; }
     .box {
       background: white;
       border: 1px solid #d5e0db;
       border-radius: 10px;
       padding: 16px;
+      margin-bottom: 16px;
     }
     label {
       display: block;
@@ -47,6 +45,14 @@
       margin-top: 16px;
       cursor: pointer;
     }
+    table { width: 100%; border-collapse: collapse; }
+    th, td {
+      text-align: left;
+      padding: 8px 4px;
+      border-bottom: 1px solid #d5e0db;
+      font-size: 14px;
+    }
+    #message { color: #a32f2f; }
   </style>
 </head>
 <body>
@@ -74,7 +80,68 @@
     <label for="due">Due date</label>
     <input id="due" type="date">
 
-    <button>Save invoice</button>
+    <button id="saveBtn">Save invoice</button>
+    <p id="message"></p>
   </div>
+
+  <div class="box">
+    <h2>Your invoices</h2>
+    <table>
+      <thead>
+        <tr><th>Client</th><th>Amount</th><th>Due</th></tr>
+      </thead>
+      <tbody id="list"></tbody>
+    </table>
+    <p id="empty">No invoices yet. Save your first one above.</p>
+  </div>
+
+  <script>
+    var invoices = [];
+
+    function showInvoices() {
+      var rows = "";
+      for (var i = 0; i < invoices.length; i++) {
+        var inv = invoices[i];
+        rows += "<tr><td>" + inv.client + "</td><td>" +
+          inv.currency + " " + inv.amount + "</td><td>" +
+          inv.due + "</td></tr>";
+      }
+      document.getElementById("list").innerHTML = rows;
+      document.getElementById("empty").style.display =
+        invoices.length > 0 ? "none" : "block";
+    }
+
+    document.getElementById("saveBtn").onclick = function () {
+      var client = document.getElementById("client").value;
+      var work = document.getElementById("work").value;
+      var amount = document.getElementById("amount").value;
+      var currency = document.getElementById("currency").value;
+      var due = document.getElementById("due").value;
+
+      if (client === "" || amount === "") {
+        document.getElementById("message").textContent =
+          "Please enter the client name and amount.";
+        return;
+      }
+
+      invoices.push({
+        client: client,
+        work: work,
+        amount: amount,
+        currency: currency,
+        due: due
+      });
+
+      document.getElementById("message").textContent = "";
+      document.getElementById("client").value = "";
+      document.getElementById("work").value = "";
+      document.getElementById("amount").value = "";
+      document.getElementById("due").value = "";
+
+      showInvoices();
+    };
+
+    showInvoices();
+  </script>
 </body>
 </html>
