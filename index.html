@@ -126,7 +126,17 @@
     <p id="empty">No invoices yet. Save your first one above.</p>
     <p style="font-size:13px">Tap a status to switch between pending and paid. Totals are in PKR (1 USD = 280 PKR).</p>
   </div>
-
+<div class="box">
+    <h2>Tax estimate</h2>
+    <label for="income">Yearly income (PKR)</label>
+    <input id="income" type="number">
+    <button id="fillIncome" style="background:white;color:#0f6b4f;border:1px solid #0f6b4f;border-radius:6px;padding:10px 14px;font-size:15px;margin-top:12px;cursor:pointer">Fill from paid invoices</button>
+    <button id="calcTax" style="background:#0f6b4f;color:white;border:none;border-radius:6px;padding:10px 14px;font-size:15px;margin-top:12px;cursor:pointer">Estimate tax</button>
+    <p style="margin-bottom:0">Estimated tax</p>
+    <p id="taxResult" style="font-size:28px;font-weight:bold;color:#0f6b4f;margin:4px 0">-</p>
+    <p id="taxRate" style="font-size:13px;margin:0"></p>
+    <p style="font-size:13px">Estimate only. These slabs are a sample and change often. Check the current FBR slabs or ask an accountant before filing.</p>
+  </div>
   <script>
    var invoices = JSON.parse(localStorage.getItem("hisaab-invoices") || "[]");
     var USD_RATE = 280;
@@ -206,7 +216,44 @@ var paid = 0, pending = 0, overdue = 0;
 
       showInvoices();
     };
+var SLABS = [
+      [600000, 0, 0],
+      [1200000, 0.01, 0],
+      [2200000, 0.11, 6000],
+      [3200000, 0.23, 116000],
+      [4100000, 0.30, 346000],
+      [Infinity, 0.35, 616000]
+    ];
 
+    function calcTax(income) {
+      var previous = 0;
+      for (var i = 0; i < SLABS.length; i++) {
+        if (income <= SLABS[i][0]) {
+          return SLABS[i][2] + (income - previous) * SLABS[i][1];
+        }
+        previous = SLABS[i][0];
+      }
+    }
+
+    document.getElementById("fillIncome").onclick = function () {
+      var total = 0;
+      for (var i = 0; i < invoices.length; i++) {
+        if (getStatus(invoices[i]) === "paid") {
+          total += toPKR(invoices[i]);
+        }
+      }
+      document.getElementById("income").value = Math.round(total);
+    };
+
+    document.getElementById("calcTax").onclick = function () {
+      var income = Number(document.getElementById("income").value);
+      if (income < 0) { return; }
+      var tax = calcTax(income);
+      document.getElementById("taxResult").textContent =
+        "PKR " + Math.round(tax).toLocaleString();
+      document.getElementById("taxRate").textContent =
+        income > 0 ? "Effective rate: " + (tax / income * 100).toFixed(1) + "%" : "";
+    };
     showInvoices();
   </script>
 </body>
