@@ -4,31 +4,77 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Hisaab</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f3f7f5;
+      color: #10231c;
+      max-width: 500px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    h1 {
+      color: #0f6b4f;
+      margin-bottom: 4px;
+    }
+    .box {
+      background: white;
+      border: 1px solid #d5e0db;
+      border-radius: 10px;
+      padding: 16px;
+    }
+    label {
+      display: block;
+      font-weight: bold;
+      margin-top: 12px;
+      margin-bottom: 4px;
+    }
+    input, select {
+      width: 100%;
+      padding: 10px;
+      font-size: 16px;
+      border: 1px solid #d5e0db;
+      border-radius: 6px;
+      box-sizing: border-box;
+    }
+    button {
+      background: #0f6b4f;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 12px 18px;
+      font-size: 16px;
+      margin-top: 16px;
+      cursor: pointer;
+    }
+  </style>
 </head>
 <body>
   <h1>Hisaab</h1>
   <p>Create invoices and track payments.</p>
 
-  <h2>New invoice</h2>
+  <div class="box">
+    <h2>New invoice</h2>
 
-  <label for="client">Client name</label><br>
-  <input id="client" type="text"><br><br>
+    <label for="client">Client name</label>
+    <input id="client" type="text">
 
-  <label for="work">Work description</label><br>
-  <input id="work" type="text"><br><br>
+    <label for="work">Work description</label>
+    <input id="work" type="text">
 
-  <label for="amount">Amount</label><br>
-  <input id="amount" type="number"><br><br>
+    <label for="amount">Amount</label>
+    <input id="amount" type="number">
 
-  <label for="currency">Currency</label><br>
-  <select id="currency">
-    <option>PKR</option>
-    <option>USD</option>
-  </select><br><br>
+    <label for="currency">Currency</label>
+    <select id="currency">
+      <option>PKR</option>
+      <option>USD</option>
+    </select>
 
-  <label for="due">Due date</label><br>
-  <input id="due" type="date"><br><br>
+    <label for="due">Due date</label>
+    <input id="due" type="date">
 
-  <button>Save invoice</button>
+    <button>Save invoice</button>
+  </div>
 </body>
 </html>
