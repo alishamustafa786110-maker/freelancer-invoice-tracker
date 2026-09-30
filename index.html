@@ -35,7 +35,7 @@
       border-radius: 6px;
       box-sizing: border-box;
     }
-    button {
+    #saveBtn {
       background: #0f6b4f;
       color: white;
       border: none;
@@ -53,11 +53,42 @@
       font-size: 14px;
     }
     #message { color: #a32f2f; }
+    .totals {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .totals div {
+      background: white;
+      border: 1px solid #d5e0db;
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 13px;
+    }
+    .totals b { display: block; font-size: 18px; }
+    .status {
+      border: none;
+      border-radius: 99px;
+      padding: 4px 12px;
+      font-size: 13px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .paid { background: #dff2ea; color: #0f6b4f; }
+    .pending { background: #fdf0d2; color: #8a5a00; }
+    .overdue { background: #fbe1e1; color: #a32f2f; }
   </style>
 </head>
 <body>
   <h1>Hisaab</h1>
   <p>Create invoices and track payments.</p>
+
+  <div class="totals">
+    <div>Received<b id="tPaid">0</b></div>
+    <div>Pending<b id="tPending">0</b></div>
+    <div>Overdue<b id="tOverdue">0</b></div>
+  </div>
 
   <div class="box">
     <h2>New invoice</h2>
@@ -88,27 +119,61 @@
     <h2>Your invoices</h2>
     <table>
       <thead>
-        <tr><th>Client</th><th>Amount</th><th>Due</th></tr>
+        <tr><th>Client</th><th>Amount</th><th>Due</th><th>Status</th></tr>
       </thead>
       <tbody id="list"></tbody>
     </table>
     <p id="empty">No invoices yet. Save your first one above.</p>
+    <p style="font-size:13px">Tap a status to switch between pending and paid. Totals are in PKR (1 USD = 280 PKR).</p>
   </div>
 
   <script>
     var invoices = [];
+    var USD_RATE = 280;
+
+    function toPKR(inv) {
+      var amount = Number(inv.amount);
+      return inv.currency === "USD" ? amount * USD_RATE : amount;
+    }
+
+    function getStatus(inv) {
+      if (inv.paid) { return "paid"; }
+      var today = new Date().toISOString().slice(0, 10);
+      if (inv.due !== "" && inv.due < today) { return "overdue"; }
+      return "pending";
+    }
+
+    function toggleStatus(index) {
+      invoices[index].paid = !invoices[index].paid;
+      showInvoices();
+    }
 
     function showInvoices() {
       var rows = "";
+      var paid = 0, pending = 0, overdue = 0;
+
       for (var i = 0; i < invoices.length; i++) {
         var inv = invoices[i];
+        var status = getStatus(inv);
+        var value = toPKR(inv);
+
+        if (status === "paid") { paid += value; }
+        else if (status === "overdue") { overdue += value; }
+        else { pending += value; }
+
         rows += "<tr><td>" + inv.client + "</td><td>" +
           inv.currency + " " + inv.amount + "</td><td>" +
-          inv.due + "</td></tr>";
+          (inv.due || "-") + "</td><td>" +
+          "<button class='status " + status + "' onclick='toggleStatus(" + i + ")'>" +
+          status + "</button></td></tr>";
       }
+
       document.getElementById("list").innerHTML = rows;
       document.getElementById("empty").style.display =
         invoices.length > 0 ? "none" : "block";
+      document.getElementById("tPaid").textContent = Math.round(paid).toLocaleString();
+      document.getElementById("tPending").textContent = Math.round(pending).toLocaleString();
+      document.getElementById("tOverdue").textContent = Math.round(overdue).toLocaleString();
     }
 
     document.getElementById("saveBtn").onclick = function () {
@@ -129,7 +194,8 @@
         work: work,
         amount: amount,
         currency: currency,
-        due: due
+        due: due,
+        paid: false
       });
 
       document.getElementById("message").textContent = "";
