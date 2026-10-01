@@ -302,5 +302,13 @@ var SLABS = [
       window.print();
     };
   </script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  const supabaseClient = supabase.createClient(
+    'https://kdxkveefocbtknyvwljo.supabase.co',
+    'sb_publishable_EzMIJzBNpnYhaaET9rsNsQ_tX37ZbcO'
+  );
+  console.log('Supabase connected', supabaseClient);
+</script>
 </body>
 </html>
