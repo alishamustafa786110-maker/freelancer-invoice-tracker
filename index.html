@@ -232,8 +232,14 @@
       <button id="printReport" class="btn" style="padding:10px 14px;font-size:15px;margin-top:0">Print income report</button>
     </div>
   </div>
-<script>window.onerror=function(m){document.getElementById("authMsg").textContent="Error: "+m;};</script>
+
   <div id="printArea"></div>
+
+<script>
+    window.onerror = function (m) {
+      document.getElementById("authMsg").textContent = "Error: " + m;
+    };
+
     var supabaseClient = supabase.createClient(
       'https://kdxkveefocbtknyvwljo.supabase.co',
       'sb_publishable_EzMIJzBNpnYhaaET9rsNsQ_tX37ZbcO'
@@ -550,6 +556,44 @@
         income > 0 ? "Effective rate: " + (tax / income * 100).toFixed(1) + "%" : "";
     };
 
+    /* ---------- Printing: single invoice ---------- */
+
+    function printInvoice(index) {
+      var inv = invoices[index];
+      if (!inv) { return; }
+
+      var name = document.getElementById("bizName").value.trim();
+      var phone = document.getElementById("bizPhone").value.trim();
+      var bank = document.getElementById("bizBank").value.trim();
+      var status = getStatus(inv);
+      var invNo = "INV-" + String(inv.id).replace(/-/g, "").slice(0, 8).toUpperCase();
+      var issued = inv.created ? String(inv.created).slice(0, 10) : new Date().toISOString().slice(0, 10);
+
+      document.getElementById("printArea").innerHTML =
+        "<div style='font-family:Arial,sans-serif;padding:24px'>" +
+        "<h1 style='margin:0'>INVOICE</h1>" +
+        "<p style='margin:4px 0 20px'>" + esc(invNo) + "</p>" +
+        (name ? "<p style='margin:0'><b>" + esc(name) + "</b></p>" : "") +
+        (phone ? "<p style='margin:0 0 20px'>" + esc(phone) + "</p>" : "<p style='margin:0 0 20px'></p>") +
+        "<p style='margin:0'><b>Bill to:</b> " + esc(inv.client) + "</p>" +
+        "<p style='margin:0'><b>Date issued:</b> " + esc(issued) + "</p>" +
+        "<p style='margin:0 0 20px'><b>Due date:</b> " + (esc(inv.due) || "-") + "</p>" +
+        "<table border='1' cellpadding='8' style='border-collapse:collapse;width:100%'>" +
+        "<tr><th style='text-align:left'>Description</th><th style='text-align:right'>Amount</th></tr>" +
+        "<tr><td>" + (esc(inv.work) || "-") + "</td><td style='text-align:right'>" +
+        esc(inv.currency) + " " + Number(inv.amount).toLocaleString() + "</td></tr>" +
+        "<tr><td style='text-align:right'><b>Total</b></td><td style='text-align:right'><b>" +
+        esc(inv.currency) + " " + Number(inv.amount).toLocaleString() + "</b></td></tr>" +
+        "</table>" +
+        "<p><b>Status:</b> " + esc(status.toUpperCase()) + "</p>" +
+        (bank ? "<p style='margin-top:24px'><b>Payment details</b><br>" +
+          esc(bank).replace(/\n/g, "<br>") + "</p>" : "") +
+        "<p style='font-size:12px;margin-top:30px'>Thank you for your business.</p>" +
+        "</div>";
+
+      window.print();
+    }
+
     /* ---------- Printing: income report ---------- */
 
     document.getElementById("printReport").onclick = function () {
@@ -575,3 +619,7 @@
         "<p><b>Total received: PKR " + Math.round(total).toLocaleString() + "</b></p>" +
         "<p style='font-size:12px'>Self-reported from Hisaab records. Not an audited statement.</p>";
       window.print();
+    };
+</script>
+</body>
+</html>
