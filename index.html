@@ -27,15 +27,16 @@
       margin-top: 12px;
       margin-bottom: 4px;
     }
-    input, select {
+    input, select, textarea {
       width: 100%;
       padding: 10px;
       font-size: 16px;
       border: 1px solid #d5e0db;
       border-radius: 6px;
       box-sizing: border-box;
+      font-family: Arial, sans-serif;
     }
-    #saveBtn, #loginBtn {
+    .btn {
       background: #0f6b4f;
       color: white;
       border: none;
@@ -45,7 +46,7 @@
       margin-top: 16px;
       cursor: pointer;
     }
-    #signupBtn, #logoutBtn {
+    .btn2 {
       background: white;
       color: #0f6b4f;
       border: 1px solid #0f6b4f;
@@ -70,7 +71,7 @@
       border-bottom: 1px solid #d5e0db;
       font-size: 14px;
     }
-    #message, #authMsg { color: #a32f2f; }
+    #message, #authMsg, #profileMsg { color: #a32f2f; }
     .totals {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
@@ -96,6 +97,15 @@
     .paid { background: #dff2ea; color: #0f6b4f; }
     .pending { background: #fdf0d2; color: #8a5a00; }
     .overdue { background: #fbe1e1; color: #a32f2f; }
+    .mini {
+      background: white;
+      color: #0f6b4f;
+      border: 1px solid #0f6b4f;
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 13px;
+      cursor: pointer;
+    }
     .del {
       background: white;
       color: #a32f2f;
@@ -108,8 +118,8 @@
     #usdRate { width: 70px; display: inline; padding: 4px 6px; font-size: 14px; }
     #printArea { display: none; }
     @media print {
-      body > *:not(#printArea) { display: none; }
-      #printArea { display: block; color: black; background: white; }
+      body > *:not(#printArea) { display: none !important; }
+      #printArea { display: block !important; color: black; background: white; }
     }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -124,15 +134,15 @@
     <input id="email" type="email" autocomplete="email">
     <label for="password">Password (at least 6 characters)</label>
     <input id="password" type="password" autocomplete="current-password">
-    <button id="loginBtn">Log in</button>
-    <button id="signupBtn">Sign up</button>
+    <button id="loginBtn" class="btn">Log in</button>
+    <button id="signupBtn" class="btn2">Sign up</button>
     <p id="authMsg"></p>
   </div>
 
   <div id="appArea" style="display:none">
     <div id="userBar">
       <span id="userEmail"></span>
-      <button id="logoutBtn">Log out</button>
+      <button id="logoutBtn" class="btn2">Log out</button>
     </div>
 
     <div class="totals">
@@ -142,10 +152,24 @@
     </div>
 
     <div class="box">
+      <h2>Your business</h2>
+      <p style="font-size:13px;margin-top:0">Saved once. It appears on every PDF invoice.</p>
+      <label for="bizName">Your name or business name</label>
+      <input id="bizName" type="text">
+      <label for="bizPhone">Phone or email</label>
+      <input id="bizPhone" type="text">
+      <label for="bizBank">Bank details (how clients should pay you)</label>
+      <textarea id="bizBank" rows="3"></textarea>
+      <button id="saveProfile" class="btn2">Save business details</button>
+      <p id="profileMsg"></p>
+    </div>
+
+    <div class="box">
       <h2>New invoice</h2>
 
       <label for="client">Client name</label>
-      <input id="client" type="text">
+      <input id="client" type="text" list="clientList">
+      <datalist id="clientList"></datalist>
 
       <label for="work">Work description</label>
       <input id="work" type="text">
@@ -162,7 +186,7 @@
       <label for="due">Due date</label>
       <input id="due" type="date">
 
-      <button id="saveBtn">Save invoice</button>
+      <button id="saveBtn" class="btn">Save invoice</button>
       <p id="message"></p>
     </div>
 
@@ -175,15 +199,27 @@
         <tbody id="list"></tbody>
       </table>
       <p id="empty">No invoices yet. Save your first one above.</p>
-      <p style="font-size:13px">Tap a status to switch between pending and paid. Tap ✕ to delete an invoice. Totals are in PKR (1 USD = <input id="usdRate" type="number" value="280"> PKR).</p>
+      <p style="font-size:13px">Tap a status to switch between pending and paid. Tap PDF to make an invoice for your client. Tap ✕ to delete. Totals are in PKR (1 USD = <input id="usdRate" type="number" value="280"> PKR).</p>
+      <button id="csvBtn" class="btn2" style="margin-top:4px;padding:8px 14px;font-size:14px">Download CSV</button>
+    </div>
+
+    <div class="box">
+      <h2>Clients</h2>
+      <table>
+        <thead>
+          <tr><th>Client</th><th>Invoices</th><th>Total (PKR)</th></tr>
+        </thead>
+        <tbody id="clientRows"></tbody>
+      </table>
+      <p id="noClients" style="font-size:13px">Clients appear here after your first invoice.</p>
     </div>
 
     <div class="box">
       <h2>Tax estimate</h2>
       <label for="income">Yearly income (PKR)</label>
       <input id="income" type="number">
-      <button id="fillIncome" style="background:white;color:#0f6b4f;border:1px solid #0f6b4f;border-radius:6px;padding:10px 14px;font-size:15px;margin-top:12px;cursor:pointer">Fill from paid invoices</button>
-      <button id="calcTax" style="background:#0f6b4f;color:white;border:none;border-radius:6px;padding:10px 14px;font-size:15px;margin-top:12px;cursor:pointer">Estimate tax</button>
+      <button id="fillIncome" class="btn2" style="padding:10px 14px;font-size:15px;margin-top:12px">Fill from paid invoices</button>
+      <button id="calcTax" class="btn" style="padding:10px 14px;font-size:15px;margin-top:12px">Estimate tax</button>
       <p style="margin-bottom:0">Estimated tax</p>
       <p id="taxResult" style="font-size:28px;font-weight:bold;color:#0f6b4f;margin:4px 0">-</p>
       <p id="taxRate" style="font-size:13px;margin:0"></p>
@@ -193,7 +229,7 @@
     <div class="box">
       <h2>Income proof</h2>
       <p>A report of all your paid invoices. Print it or save it as a PDF.</p>
-      <button id="printReport" style="background:#0f6b4f;color:white;border:none;border-radius:6px;padding:10px 14px;font-size:15px;cursor:pointer">Print income report</button>
+      <button id="printReport" class="btn" style="padding:10px 14px;font-size:15px;margin-top:0">Print income report</button>
     </div>
   </div>
 
@@ -207,6 +243,7 @@
 
     var invoices = [];
     var USD_RATE = 280;
+    var profileUid = null;
 
     function esc(text) {
       var d = document.createElement("div");
@@ -234,8 +271,16 @@
       document.getElementById("appArea").style.display = loggedIn ? "block" : "none";
       if (loggedIn) {
         document.getElementById("userEmail").textContent = session.user.email;
+        if (profileUid !== session.user.id) {
+          var meta = session.user.user_metadata || {};
+          document.getElementById("bizName").value = meta.business_name || "";
+          document.getElementById("bizPhone").value = meta.business_phone || "";
+          document.getElementById("bizBank").value = meta.business_bank || "";
+          profileUid = session.user.id;
+        }
         setTimeout(loadInvoices, 0);
       } else {
+        profileUid = null;
         invoices = [];
         showInvoices();
       }
@@ -274,6 +319,26 @@
       await supabaseClient.auth.signOut();
     };
 
+    /* ---------- Business profile (saved in your account) ---------- */
+
+    document.getElementById("saveProfile").onclick = async function () {
+      var msg = document.getElementById("profileMsg");
+      var res = await supabaseClient.auth.updateUser({
+        data: {
+          business_name: document.getElementById("bizName").value.trim(),
+          business_phone: document.getElementById("bizPhone").value.trim(),
+          business_bank: document.getElementById("bizBank").value.trim()
+        }
+      });
+      if (res.error) {
+        msg.style.color = "#a32f2f";
+        msg.textContent = res.error.message;
+        return;
+      }
+      msg.style.color = "#0f6b4f";
+      msg.textContent = "Saved.";
+    };
+
     /* ---------- Invoices (saved in Supabase) ---------- */
 
     async function loadInvoices() {
@@ -293,7 +358,8 @@
           amount: r.amount,
           currency: r.currency,
           due: r.due_date || "",
-          paid: r.status === "paid"
+          paid: r.status === "paid",
+          created: r.created_at || ""
         };
       });
       showInvoices();
@@ -332,6 +398,8 @@
     function showInvoices() {
       var rows = "";
       var paid = 0, pending = 0, overdue = 0;
+      var clients = {};
+
       for (var i = 0; i < invoices.length; i++) {
         var inv = invoices[i];
         var status = getStatus(inv);
@@ -341,11 +409,16 @@
         else if (status === "overdue") { overdue += value; }
         else { pending += value; }
 
+        if (!clients[inv.client]) { clients[inv.client] = { count: 0, total: 0 }; }
+        clients[inv.client].count += 1;
+        clients[inv.client].total += value;
+
         rows += "<tr><td>" + esc(inv.client) + "</td><td>" +
           esc(inv.currency) + " " + esc(inv.amount) + "</td><td>" +
           (esc(inv.due) || "-") + "</td><td>" +
           "<button class='status " + status + "' onclick='toggleStatus(" + i + ")'>" +
-          status + "</button></td><td>" +
+          status + "</button></td><td style='white-space:nowrap'>" +
+          "<button class='mini' onclick='printInvoice(" + i + ")'>PDF</button> " +
           "<button class='del' onclick='deleteInvoice(" + i + ")'>&#10005;</button></td></tr>";
       }
 
@@ -355,6 +428,18 @@
       document.getElementById("tPaid").textContent = Math.round(paid).toLocaleString();
       document.getElementById("tPending").textContent = Math.round(pending).toLocaleString();
       document.getElementById("tOverdue").textContent = Math.round(overdue).toLocaleString();
+
+      var names = Object.keys(clients);
+      var clientHtml = "";
+      var optionHtml = "";
+      for (var c = 0; c < names.length; c++) {
+        clientHtml += "<tr><td>" + esc(names[c]) + "</td><td>" + clients[names[c]].count +
+          "</td><td>" + Math.round(clients[names[c]].total).toLocaleString() + "</td></tr>";
+        optionHtml += "<option value=\"" + esc(names[c]).replace(/"/g, "&quot;") + "\">";
+      }
+      document.getElementById("clientRows").innerHTML = clientHtml;
+      document.getElementById("clientList").innerHTML = optionHtml;
+      document.getElementById("noClients").style.display = names.length > 0 ? "none" : "block";
     }
 
     document.getElementById("usdRate").oninput = function () {
@@ -366,7 +451,7 @@
     };
 
     document.getElementById("saveBtn").onclick = async function () {
-      var client = document.getElementById("client").value;
+      var client = document.getElementById("client").value.trim();
       var work = document.getElementById("work").value;
       var amount = document.getElementById("amount").value;
       var currency = document.getElementById("currency").value;
@@ -395,6 +480,35 @@
       document.getElementById("due").value = "";
 
       await loadInvoices();
+    };
+
+    /* ---------- CSV download ---------- */
+
+    function csvCell(v) {
+      return '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
+    }
+
+    document.getElementById("csvBtn").onclick = function () {
+      if (invoices.length === 0) {
+        document.getElementById("message").textContent = "No invoices to download yet.";
+        return;
+      }
+      var lines = ["Client,Work,Amount,Currency,Due,Status,Amount in PKR"];
+      for (var i = 0; i < invoices.length; i++) {
+        var inv = invoices[i];
+        lines.push([
+          csvCell(inv.client), csvCell(inv.work), csvCell(inv.amount),
+          csvCell(inv.currency), csvCell(inv.due), csvCell(getStatus(inv)),
+          csvCell(Math.round(toPKR(inv)))
+        ].join(","));
+      }
+      var blob = new Blob([lines.join("\n")], { type: "text/csv" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "hisaab-invoices.csv";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
     };
 
     /* ---------- Tax estimate ---------- */
@@ -438,7 +552,7 @@
         income > 0 ? "Effective rate: " + (tax / income * 100).toFixed(1) + "%" : "";
     };
 
-    /* ---------- Printing ---------- */
+    /* ---------- Printing: income report ---------- */
 
     document.getElementById("printReport").onclick = function () {
       var total = 0;
@@ -452,8 +566,10 @@
             "</td><td>PKR " + Math.round(toPKR(inv)).toLocaleString() + "</td></tr>";
         }
       }
+      var name = document.getElementById("bizName").value.trim();
       document.getElementById("printArea").innerHTML =
         "<h1>Income report</h1>" +
+        (name ? "<p><b>" + esc(name) + "</b></p>" : "") +
         "<p>Generated: " + new Date().toISOString().slice(0, 10) + "</p>" +
         "<table border='1' cellpadding='6' style='border-collapse:collapse;width:100%'>" +
         "<tr><th>Client</th><th>Work</th><th>Amount</th><th>In PKR</th></tr>" +
@@ -461,10 +577,3 @@
         "<p><b>Total received: PKR " + Math.round(total).toLocaleString() + "</b></p>" +
         "<p style='font-size:12px'>Self-reported from Hisaab records. Not an audited statement.</p>";
       window.print();
-    };
-  </script>
-</body>
-</html>
-  </script>
-</body>
-</html>
