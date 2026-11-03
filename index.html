@@ -232,10 +232,8 @@
       <button id="printReport" class="btn" style="padding:10px 14px;font-size:15px;margin-top:0">Print income report</button>
     </div>
   </div>
-
+<script>window.onerror=function(m){document.getElementById("authMsg").textContent="Error: "+m;};</script>
   <div id="printArea"></div>
-
-  <script>
     var supabaseClient = supabase.createClient(
       'https://kdxkveefocbtknyvwljo.supabase.co',
       'sb_publishable_EzMIJzBNpnYhaaET9rsNsQ_tX37ZbcO'
