@@ -96,6 +96,16 @@
     .paid { background: #dff2ea; color: #0f6b4f; }
     .pending { background: #fdf0d2; color: #8a5a00; }
     .overdue { background: #fbe1e1; color: #a32f2f; }
+    .del {
+      background: white;
+      color: #a32f2f;
+      border: 1px solid #e6b8b8;
+      border-radius: 6px;
+      padding: 4px 9px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    #usdRate { width: 70px; display: inline; padding: 4px 6px; font-size: 14px; }
     #printArea { display: none; }
     @media print {
       body > *:not(#printArea) { display: none; }
@@ -160,12 +170,12 @@
       <h2>Your invoices</h2>
       <table>
         <thead>
-          <tr><th>Client</th><th>Amount</th><th>Due</th><th>Status</th></tr>
+          <tr><th>Client</th><th>Amount</th><th>Due</th><th>Status</th><th></th></tr>
         </thead>
         <tbody id="list"></tbody>
       </table>
       <p id="empty">No invoices yet. Save your first one above.</p>
-      <p style="font-size:13px">Tap a status to switch between pending and paid. Totals are in PKR (1 USD = 280 PKR).</p>
+      <p style="font-size:13px">Tap a status to switch between pending and paid. Tap ✕ to delete an invoice. Totals are in PKR (1 USD = <input id="usdRate" type="number" value="280"> PKR).</p>
     </div>
 
     <div class="box">
@@ -304,6 +314,21 @@
       showInvoices();
     }
 
+    async function deleteInvoice(index) {
+      var inv = invoices[index];
+      if (!confirm("Delete invoice for " + inv.client + "?")) { return; }
+      var res = await supabaseClient
+        .from("invoices")
+        .delete()
+        .eq("id", inv.id);
+      if (res.error) {
+        document.getElementById("message").textContent = res.error.message;
+        return;
+      }
+      invoices.splice(index, 1);
+      showInvoices();
+    }
+
     function showInvoices() {
       var rows = "";
       var paid = 0, pending = 0, overdue = 0;
@@ -320,7 +345,8 @@
           esc(inv.currency) + " " + esc(inv.amount) + "</td><td>" +
           (esc(inv.due) || "-") + "</td><td>" +
           "<button class='status " + status + "' onclick='toggleStatus(" + i + ")'>" +
-          status + "</button></td></tr>";
+          status + "</button></td><td>" +
+          "<button class='del' onclick='deleteInvoice(" + i + ")'>&#10005;</button></td></tr>";
       }
 
       document.getElementById("list").innerHTML = rows;
@@ -330,6 +356,14 @@
       document.getElementById("tPending").textContent = Math.round(pending).toLocaleString();
       document.getElementById("tOverdue").textContent = Math.round(overdue).toLocaleString();
     }
+
+    document.getElementById("usdRate").oninput = function () {
+      var r = Number(this.value);
+      if (r > 0) {
+        USD_RATE = r;
+        showInvoices();
+      }
+    };
 
     document.getElementById("saveBtn").onclick = async function () {
       var client = document.getElementById("client").value;
@@ -428,6 +462,9 @@
         "<p style='font-size:12px'>Self-reported from Hisaab records. Not an audited statement.</p>";
       window.print();
     };
+  </script>
+</body>
+</html>
   </script>
 </body>
 </html>
