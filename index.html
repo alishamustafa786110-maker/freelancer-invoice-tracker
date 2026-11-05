@@ -199,8 +199,19 @@
         <tbody id="list"></tbody>
       </table>
       <p id="empty">No invoices yet. Save your first one above.</p>
-      <p style="font-size:13px">Tap a status to switch between pending and paid. Tap PDF to make an invoice for your client. Tap ✕ to delete. Totals are in PKR (1 USD = <input id="usdRate" type="number" value="280"> PKR).</p>
+      <p style="font-size:13px">Tap a status to switch between pending and paid. When you mark an invoice paid, you will be asked for the date, the exchange rate that day, and any bank charges or tax deducted. Tap PDF to make an invoice for your client. Tap ✕ to delete. Totals are in PKR (1 USD = <input id="usdRate" type="number" value="280"> PKR). This rate is saved with each new invoice as its invoice-date rate.</p>
       <button id="csvBtn" class="btn2" style="margin-top:4px;padding:8px 14px;font-size:14px">Download CSV</button>
+    </div>
+
+    <div class="box">
+      <h2>Payment details</h2>
+      <table>
+        <thead>
+          <tr><th>Client</th><th>Currency diff (PKR)</th><th>Fees/tax</th><th>Net received</th></tr>
+        </thead>
+        <tbody id="payRows"></tbody>
+      </table>
+      <p id="noPay" style="font-size:13px">Mark an invoice as paid to see the currency difference and net amount.</p>
     </div>
 
     <div class="box">
@@ -265,6 +276,20 @@
       var today = new Date().toISOString().slice(0, 10);
       if (inv.due !== "" && inv.due < today) { return "overdue"; }
       return "pending";
+    }
+
+    /* ---------- Currency difference and net received ---------- */
+
+    function fxDiff(inv) {
+      if (!inv.paid || inv.currency !== "USD" || !inv.invoiceRate || !inv.receiptRate) { return 0; }
+      return Number(inv.amount) * (Number(inv.receiptRate) - Number(inv.invoiceRate));
+    }
+
+    function netReceived(inv) {
+      var gross = inv.currency === "USD"
+        ? Number(inv.amount) * (Number(inv.receiptRate) || USD_RATE)
+        : Number(inv.amount);
+      return gross - (inv.fees || 0);
     }
 
     /* ---------- Login ---------- */
@@ -363,7 +388,11 @@
           currency: r.currency,
           due: r.due_date || "",
           paid: r.status === "paid",
-          created: r.created_at || ""
+          created: r.created_at || "",
+          invoiceRate: r.invoice_rate,
+          receiptRate: r.receipt_rate,
+          receivedDate: r.received_date,
+          fees: Number(r.fees_deducted) || 0
         };
       });
       showInvoices();
@@ -371,16 +400,37 @@
 
     async function toggleStatus(index) {
       var inv = invoices[index];
-      var newStatus = inv.paid ? "pending" : "paid";
-      var res = await supabaseClient
-        .from("invoices")
-        .update({ status: newStatus })
-        .eq("id", inv.id);
+      var update;
+      if (inv.paid) {
+        update = { status: "pending", received_date: null, receipt_rate: null, fees_deducted: 0 };
+      } else {
+        var today = new Date().toISOString().slice(0, 10);
+        var rDate = prompt("Date payment received (YYYY-MM-DD):", today);
+        if (rDate === null) { return; }
+        var rRate = null;
+        if (inv.currency === "USD") {
+          var rr = prompt("USD to PKR rate on the day you received it:", USD_RATE);
+          if (rr === null) { return; }
+          rRate = Number(rr) > 0 ? Number(rr) : USD_RATE;
+        }
+        var fees = prompt("Bank charges or tax deducted (PKR, 0 if none):", "0");
+        if (fees === null) { return; }
+        update = {
+          status: "paid",
+          received_date: rDate === "" ? today : rDate,
+          receipt_rate: rRate,
+          fees_deducted: Number(fees) || 0
+        };
+      }
+      var res = await supabaseClient.from("invoices").update(update).eq("id", inv.id);
       if (res.error) {
         document.getElementById("message").textContent = res.error.message;
         return;
       }
-      inv.paid = !inv.paid;
+      inv.paid = update.status === "paid";
+      inv.receivedDate = update.received_date;
+      inv.receiptRate = update.receipt_rate;
+      inv.fees = update.fees_deducted;
       showInvoices();
     }
 
@@ -433,6 +483,18 @@
       document.getElementById("tPending").textContent = Math.round(pending).toLocaleString();
       document.getElementById("tOverdue").textContent = Math.round(overdue).toLocaleString();
 
+      var payHtml = "";
+      for (var p = 0; p < invoices.length; p++) {
+        var pi = invoices[p];
+        if (!pi.paid) { continue; }
+        payHtml += "<tr><td>" + esc(pi.client) + "</td><td>" +
+          Math.round(fxDiff(pi)).toLocaleString() + "</td><td>" +
+          Math.round(pi.fees).toLocaleString() + "</td><td>" +
+          Math.round(netReceived(pi)).toLocaleString() + "</td></tr>";
+      }
+      document.getElementById("payRows").innerHTML = payHtml;
+      document.getElementById("noPay").style.display = payHtml ? "none" : "block";
+
       var names = Object.keys(clients);
       var clientHtml = "";
       var optionHtml = "";
@@ -473,6 +535,7 @@
         amount: Number(amount),
         currency: currency,
         due_date: due === "" ? null : due,
+        invoice_rate: USD_RATE,
         status: "pending"
       });
       if (res.error) { msg.textContent = res.error.message; return; }
