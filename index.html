@@ -115,6 +115,7 @@
       font-size: 14px;
       cursor: pointer;
     }
+    .invno { font-size: 12px; color: #5a6b64; }
     #usdRate { width: 70px; display: inline; padding: 4px 6px; font-size: 14px; }
     #printArea { display: none; }
     @media print {
@@ -167,9 +168,15 @@
     <div class="box">
       <h2>New invoice</h2>
 
+      <label for="invNo">Invoice number (optional)</label>
+      <input id="invNo" type="text">
+
       <label for="client">Client name</label>
       <input id="client" type="text" list="clientList">
       <datalist id="clientList"></datalist>
+
+      <label for="country">Client country</label>
+      <input id="country" type="text">
 
       <label for="work">Work description</label>
       <input id="work" type="text">
@@ -382,6 +389,8 @@
       invoices = res.data.map(function (r) {
         return {
           id: r.id,
+          invoiceNo: r.invoice_no || "",
+          country: r.client_country || "",
           client: r.client_name,
           work: r.work || "",
           amount: r.amount,
@@ -467,7 +476,9 @@
         clients[inv.client].count += 1;
         clients[inv.client].total += value;
 
-        rows += "<tr><td>" + esc(inv.client) + "</td><td>" +
+        rows += "<tr><td>" + esc(inv.client) +
+          (inv.invoiceNo ? "<div class='invno'>" + esc(inv.invoiceNo) + "</div>" : "") +
+          "</td><td>" +
           esc(inv.currency) + " " + esc(inv.amount) + "</td><td>" +
           (esc(inv.due) || "-") + "</td><td>" +
           "<button class='status " + status + "' onclick='toggleStatus(" + i + ")'>" +
@@ -517,7 +528,9 @@
     };
 
     document.getElementById("saveBtn").onclick = async function () {
+      var invNo = document.getElementById("invNo").value.trim();
       var client = document.getElementById("client").value.trim();
+      var country = document.getElementById("country").value.trim();
       var work = document.getElementById("work").value;
       var amount = document.getElementById("amount").value;
       var currency = document.getElementById("currency").value;
@@ -530,7 +543,9 @@
       }
 
       var res = await supabaseClient.from("invoices").insert({
+        invoice_no: invNo,
         client_name: client,
+        client_country: country,
         work: work,
         amount: Number(amount),
         currency: currency,
@@ -541,7 +556,9 @@
       if (res.error) { msg.textContent = res.error.message; return; }
 
       msg.textContent = "";
+      document.getElementById("invNo").value = "";
       document.getElementById("client").value = "";
+      document.getElementById("country").value = "";
       document.getElementById("work").value = "";
       document.getElementById("amount").value = "";
       document.getElementById("due").value = "";
@@ -560,11 +577,12 @@
         document.getElementById("message").textContent = "No invoices to download yet.";
         return;
       }
-      var lines = ["Client,Work,Amount,Currency,Due,Status,Amount in PKR"];
+      var lines = ["Invoice no,Client,Client country,Work,Amount,Currency,Due,Status,Amount in PKR"];
       for (var i = 0; i < invoices.length; i++) {
         var inv = invoices[i];
         lines.push([
-          csvCell(inv.client), csvCell(inv.work), csvCell(inv.amount),
+          csvCell(inv.invoiceNo), csvCell(inv.client), csvCell(inv.country),
+          csvCell(inv.work), csvCell(inv.amount),
           csvCell(inv.currency), csvCell(inv.due), csvCell(getStatus(inv)),
           csvCell(Math.round(toPKR(inv)))
         ].join(","));
@@ -629,7 +647,8 @@
       var phone = document.getElementById("bizPhone").value.trim();
       var bank = document.getElementById("bizBank").value.trim();
       var status = getStatus(inv);
-      var invNo = "INV-" + String(inv.id).replace(/-/g, "").slice(0, 8).toUpperCase();
+      var invNo = inv.invoiceNo ||
+        ("INV-" + String(inv.id).replace(/-/g, "").slice(0, 8).toUpperCase());
       var issued = inv.created ? String(inv.created).slice(0, 10) : new Date().toISOString().slice(0, 10);
 
       document.getElementById("printArea").innerHTML =
@@ -638,7 +657,8 @@
         "<p style='margin:4px 0 20px'>" + esc(invNo) + "</p>" +
         (name ? "<p style='margin:0'><b>" + esc(name) + "</b></p>" : "") +
         (phone ? "<p style='margin:0 0 20px'>" + esc(phone) + "</p>" : "<p style='margin:0 0 20px'></p>") +
-        "<p style='margin:0'><b>Bill to:</b> " + esc(inv.client) + "</p>" +
+        "<p style='margin:0'><b>Bill to:</b> " + esc(inv.client) +
+        (inv.country ? ", " + esc(inv.country) : "") + "</p>" +
         "<p style='margin:0'><b>Date issued:</b> " + esc(issued) + "</p>" +
         "<p style='margin:0 0 20px'><b>Due date:</b> " + (esc(inv.due) || "-") + "</p>" +
         "<table border='1' cellpadding='8' style='border-collapse:collapse;width:100%'>" +
@@ -666,7 +686,9 @@
         var inv = invoices[i];
         if (getStatus(inv) === "paid") {
           total += toPKR(inv);
-          rows += "<tr><td>" + esc(inv.client) + "</td><td>" + (esc(inv.work) || "-") +
+          rows += "<tr><td>" + esc(inv.invoiceNo) + "</td><td>" + esc(inv.client) +
+            (inv.country ? " (" + esc(inv.country) + ")" : "") +
+            "</td><td>" + (esc(inv.work) || "-") +
             "</td><td>" + esc(inv.currency) + " " + esc(inv.amount) +
             "</td><td>PKR " + Math.round(toPKR(inv)).toLocaleString() + "</td></tr>";
         }
@@ -677,7 +699,7 @@
         (name ? "<p><b>" + esc(name) + "</b></p>" : "") +
         "<p>Generated: " + new Date().toISOString().slice(0, 10) + "</p>" +
         "<table border='1' cellpadding='6' style='border-collapse:collapse;width:100%'>" +
-        "<tr><th>Client</th><th>Work</th><th>Amount</th><th>In PKR</th></tr>" +
+        "<tr><th>Invoice no</th><th>Client</th><th>Work</th><th>Amount</th><th>In PKR</th></tr>" +
         rows + "</table>" +
         "<p><b>Total received: PKR " + Math.round(total).toLocaleString() + "</b></p>" +
         "<p style='font-size:12px'>Self-reported from Hisaab records. Not an audited statement.</p>";
