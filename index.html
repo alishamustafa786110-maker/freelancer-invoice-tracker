@@ -206,7 +206,7 @@
         <tbody id="list"></tbody>
       </table>
       <p id="empty">No invoices yet. Save your first one above.</p>
-      <p style="font-size:13px">Tap a status to switch between pending and paid. When you mark an invoice paid, you will be asked for the date, the exchange rate that day, bank charges or tax deducted, the channel, the remittance reference, the rate source, and the actual PKR credited. Tap PDF to make an invoice for your client. Tap ✕ to delete. Totals are in PKR (1 USD = <input id="usdRate" type="number" value="280"> PKR). This rate is saved with each new invoice as its invoice-date rate.</p>
+      <p style="font-size:13px">Tap a status to switch between pending and paid. When you mark an invoice paid, you will be asked for the date, the exchange rate that day, bank charges or tax deducted, the channel, the remittance reference, the rate source, and the actual PKR credited. Tap Cert to upload the inward remittance certificate, and View to open it. Tap PDF to make an invoice for your client. Tap ✕ to delete. Totals are in PKR (1 USD = <input id="usdRate" type="number" value="280"> PKR). This rate is saved with each new invoice as its invoice-date rate.</p>
       <button id="csvBtn" class="btn2" style="margin-top:4px;padding:8px 14px;font-size:14px">Download CSV</button>
     </div>
 
@@ -416,7 +416,8 @@
           channel: r.channel || "",
           remittanceRef: r.remittance_ref || "",
           rateSource: r.rate_source || "",
-          pkrCredited: r.pkr_credited
+          pkrCredited: r.pkr_credited,
+          certificatePath: r.certificate_path || ""
         };
       });
       showInvoices();
@@ -498,6 +499,40 @@
       showInvoices();
     }
 
+    /* ---------- Inward remittance certificate (private storage) ---------- */
+
+    function uploadCertificate(index) {
+      var inv = invoices[index];
+      var input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/*,.pdf";
+      input.onchange = async function () {
+        var file = input.files[0];
+        if (!file) { return; }
+        if (file.size > 5 * 1024 * 1024) {
+          alert("File 5 MB se chhoti honi chahiye.");
+          return;
+        }
+        var safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        var path = profileUid + "/" + inv.id + "-" + Date.now() + "-" + safeName;
+        var up = await supabaseClient.storage.from("certificates").upload(path, file, { upsert: false });
+        if (up.error) { alert(up.error.message); return; }
+        var res = await supabaseClient.from("invoices").update({ certificate_path: path }).eq("id", inv.id);
+        if (res.error) { alert(res.error.message); return; }
+        inv.certificatePath = path;
+        showInvoices();
+      };
+      input.click();
+    }
+
+    async function viewCertificate(index) {
+      var inv = invoices[index];
+      if (!inv.certificatePath) { return; }
+      var res = await supabaseClient.storage.from("certificates").createSignedUrl(inv.certificatePath, 300);
+      if (res.error) { alert(res.error.message); return; }
+      window.open(res.data.signedUrl, "_blank");
+    }
+
     function showInvoices() {
       var rows = "";
       var paid = 0, pending = 0, overdue = 0;
@@ -516,6 +551,10 @@
         clients[inv.client].count += 1;
         clients[inv.client].total += value;
 
+        var certButtons = "<button class='mini' onclick='uploadCertificate(" + i + ")'>" +
+          (inv.certificatePath ? "Replace cert" : "Cert") + "</button> " +
+          (inv.certificatePath ? "<button class='mini' onclick='viewCertificate(" + i + ")'>View</button> " : "");
+
         rows += "<tr><td>" + esc(inv.client) +
           (inv.invoiceNo ? "<div class='invno'>" + esc(inv.invoiceNo) + "</div>" : "") +
           "</td><td>" +
@@ -523,6 +562,7 @@
           (esc(inv.due) || "-") + "</td><td>" +
           "<button class='status " + status + "' onclick='toggleStatus(" + i + ")'>" +
           status + "</button></td><td style='white-space:nowrap'>" +
+          certButtons +
           "<button class='mini' onclick='printInvoice(" + i + ")'>PDF</button> " +
           "<button class='del' onclick='deleteInvoice(" + i + ")'>&#10005;</button></td></tr>";
       }
@@ -619,7 +659,7 @@
         document.getElementById("message").textContent = "No invoices to download yet.";
         return;
       }
-      var lines = ["Invoice no,Client,Client country,Work,Amount,Currency,Due,Status,Received date,Tax year,Channel,Remittance ref,Rate source,Invoice rate,Receipt rate,Fees/tax,PKR credited,Net received PKR"];
+      var lines = ["Invoice no,Client,Client country,Work,Amount,Currency,Due,Status,Received date,Tax year,Channel,Remittance ref,Rate source,Invoice rate,Receipt rate,Fees/tax,PKR credited,Net received PKR,Certificate uploaded"];
       for (var i = 0; i < invoices.length; i++) {
         var inv = invoices[i];
         lines.push([
@@ -630,7 +670,8 @@
           csvCell(inv.channel), csvCell(inv.remittanceRef), csvCell(inv.rateSource),
           csvCell(inv.invoiceRate || ""), csvCell(inv.receiptRate || ""),
           csvCell(inv.fees), csvCell(inv.pkrCredited || ""),
-          csvCell(inv.paid ? Math.round(netReceived(inv)) : "")
+          csvCell(inv.paid ? Math.round(netReceived(inv)) : ""),
+          csvCell(inv.certificatePath ? "Yes" : "No")
         ].join(","));
       }
       var blob = new Blob([lines.join("\n")], { type: "text/csv" });
@@ -738,7 +779,8 @@
             "</td><td>" + esc(inv.currency) + " " + esc(inv.amount) +
             "</td><td>PKR " + Math.round(toPKR(inv)).toLocaleString() +
             "</td><td>" + esc(taxYear(inv.receivedDate)) +
-            "</td><td>" + esc(inv.remittanceRef) + "</td></tr>";
+            "</td><td>" + esc(inv.remittanceRef) +
+            "</td><td>" + (inv.certificatePath ? "Yes" : "No") + "</td></tr>";
         }
       }
       var name = document.getElementById("bizName").value.trim();
@@ -747,7 +789,7 @@
         (name ? "<p><b>" + esc(name) + "</b></p>" : "") +
         "<p>Generated: " + new Date().toISOString().slice(0, 10) + "</p>" +
         "<table border='1' cellpadding='6' style='border-collapse:collapse;width:100%'>" +
-        "<tr><th>Invoice no</th><th>Client</th><th>Work</th><th>Amount</th><th>In PKR</th><th>Tax year</th><th>Remittance ref</th></tr>" +
+        "<tr><th>Invoice no</th><th>Client</th><th>Work</th><th>Amount</th><th>In PKR</th><th>Tax year</th><th>Remittance ref</th><th>Certificate</th></tr>" +
         rows + "</table>" +
         "<p><b>Total received: PKR " + Math.round(total).toLocaleString() + "</b></p>" +
         "<p style='font-size:12px'>Self-reported from Hisaab records. Not an audited statement.</p>";
