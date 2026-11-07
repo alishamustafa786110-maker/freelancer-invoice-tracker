@@ -71,7 +71,7 @@
       border-bottom: 1px solid #d5e0db;
       font-size: 14px;
     }
-    #message, #authMsg, #profileMsg { color: #a32f2f; }
+    #message, #authMsg, #profileMsg, #yearMsg { color: #a32f2f; }
     .totals {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
@@ -121,6 +121,7 @@
     @media print {
       body > *:not(#printArea) { display: none !important; }
       #printArea { display: block !important; color: black; background: white; }
+      #printArea table th, #printArea table td { font-size: 11px; padding: 4px; }
     }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -222,6 +223,16 @@
     </div>
 
     <div class="box">
+      <h2>Yearly statement</h2>
+      <p style="font-size:13px;margin-top:0">Pick a tax year (1 July to 30 June). It lists all paid invoices received in that year.</p>
+      <label for="yearSel">Tax year</label>
+      <select id="yearSel"></select>
+      <button id="yearPrint" class="btn">Print yearly statement</button>
+      <button id="yearCsv" class="btn2">Download yearly CSV</button>
+      <p id="yearMsg"></p>
+    </div>
+
+    <div class="box">
       <h2>Clients</h2>
       <table>
         <thead>
@@ -286,13 +297,18 @@
     }
 
     /* Pakistan tax year: 1 July to 30 June. Receipts from 1 July 2026 to 30 June 2027 are TY 2027. */
+    function taxYearNum(dateStr) {
+      if (!dateStr) { return null; }
+      var parts = String(dateStr).slice(0, 10).split("-");
+      var y = Number(parts[0]);
+      var m = Number(parts[1]);
+      if (!y || !m) { return null; }
+      return m >= 7 ? y + 1 : y;
+    }
+
     function taxYear(dateStr) {
-      if (!dateStr) { return ""; }
-      var d = new Date(dateStr);
-      if (isNaN(d.getTime())) { return ""; }
-      var y = d.getFullYear();
-      var m = d.getMonth() + 1;
-      return "TY " + (m >= 7 ? y + 1 : y);
+      var n = taxYearNum(dateStr);
+      return n ? "TY " + n : "";
     }
 
     /* ---------- Currency difference and net received ---------- */
@@ -302,12 +318,15 @@
       return Number(inv.amount) * (Number(inv.receiptRate) - Number(inv.invoiceRate));
     }
 
-    function netReceived(inv) {
-      if (inv.pkrCredited) { return Number(inv.pkrCredited); }
-      var gross = inv.currency === "USD"
+    function grossPKR(inv) {
+      return inv.currency === "USD"
         ? Number(inv.amount) * (Number(inv.receiptRate) || USD_RATE)
         : Number(inv.amount);
-      return gross - (inv.fees || 0);
+    }
+
+    function netReceived(inv) {
+      if (inv.pkrCredited) { return Number(inv.pkrCredited); }
+      return grossPKR(inv) - (inv.fees || 0);
     }
 
     /* ---------- Login ---------- */
@@ -599,6 +618,8 @@
       document.getElementById("clientRows").innerHTML = clientHtml;
       document.getElementById("clientList").innerHTML = optionHtml;
       document.getElementById("noClients").style.display = names.length > 0 ? "none" : "block";
+
+      updateYearOptions();
     }
 
     document.getElementById("usdRate").oninput = function () {
@@ -648,7 +669,7 @@
       await loadInvoices();
     };
 
-    /* ---------- CSV download ---------- */
+    /* ---------- CSV download (all invoices) ---------- */
 
     function csvCell(v) {
       return '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
@@ -678,6 +699,142 @@
       var a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = "hisaab-invoices.csv";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    };
+
+    /* ---------- Yearly statement (one tax year, paid invoices) ---------- */
+
+    function updateYearOptions() {
+      var sel = document.getElementById("yearSel");
+      var prev = sel.value;
+      var years = {};
+      for (var i = 0; i < invoices.length; i++) {
+        if (!invoices[i].paid) { continue; }
+        var n = taxYearNum(invoices[i].receivedDate);
+        if (n) { years[n] = true; }
+      }
+      var keys = Object.keys(years).map(Number).sort(function (a, b) { return b - a; });
+      if (keys.length === 0) {
+        sel.innerHTML = "<option value=''>No paid invoices yet</option>";
+        return;
+      }
+      var html = "";
+      for (var k = 0; k < keys.length; k++) {
+        html += "<option value='" + keys[k] + "'>TY " + keys[k] +
+          " (1 Jul " + (keys[k] - 1) + " to 30 Jun " + keys[k] + ")</option>";
+      }
+      sel.innerHTML = html;
+      if (prev && years[Number(prev)]) { sel.value = prev; }
+    }
+
+    function yearRows(ty) {
+      var out = [];
+      for (var i = 0; i < invoices.length; i++) {
+        var inv = invoices[i];
+        if (inv.paid && taxYearNum(inv.receivedDate) === ty) { out.push(inv); }
+      }
+      out.sort(function (a, b) {
+        return String(a.receivedDate).localeCompare(String(b.receivedDate));
+      });
+      return out;
+    }
+
+    function yearTotals(list) {
+      var t = { count: list.length, gross: 0, fees: 0, net: 0, noRef: 0, noCert: 0 };
+      for (var i = 0; i < list.length; i++) {
+        var inv = list[i];
+        t.gross += grossPKR(inv);
+        t.fees += inv.fees || 0;
+        t.net += netReceived(inv);
+        if (!inv.remittanceRef) { t.noRef += 1; }
+        if (!inv.certificatePath) { t.noCert += 1; }
+      }
+      return t;
+    }
+
+    function yearStatementHtml(ty) {
+      var list = yearRows(ty);
+      var t = yearTotals(list);
+      var name = document.getElementById("bizName").value.trim();
+      var phone = document.getElementById("bizPhone").value.trim();
+
+      var rows = "";
+      for (var i = 0; i < list.length; i++) {
+        var inv = list[i];
+        rows += "<tr><td>" + esc(inv.invoiceNo) + "</td><td>" + esc(inv.client) +
+          (inv.country ? " (" + esc(inv.country) + ")" : "") + "</td><td>" +
+          esc(inv.work) + "</td><td>" + esc(inv.receivedDate) + "</td><td>" +
+          esc(inv.channel) + "</td><td>" + esc(inv.remittanceRef) + "</td><td>" +
+          esc(inv.currency) + " " + esc(inv.amount) + "</td><td>" +
+          Math.round(grossPKR(inv)).toLocaleString() + "</td><td>" +
+          Math.round(inv.fees || 0).toLocaleString() + "</td><td>" +
+          Math.round(netReceived(inv)).toLocaleString() + "</td><td>" +
+          (inv.certificatePath ? "Yes" : "No") + "</td></tr>";
+      }
+
+      var missing = "";
+      if (t.noRef > 0 || t.noCert > 0) {
+        missing = "<p style='color:#a32f2f'><b>Missing:</b> " +
+          t.noRef + " without remittance reference, " +
+          t.noCert + " without certificate.</p>";
+      }
+
+      return "<h1 style='margin:0'>Yearly statement</h1>" +
+        "<p style='margin:4px 0'><b>Tax year " + ty + "</b> (1 July " + (ty - 1) +
+        " to 30 June " + ty + ")</p>" +
+        (name ? "<p style='margin:0'><b>" + esc(name) + "</b></p>" : "") +
+        (phone ? "<p style='margin:0'>" + esc(phone) + "</p>" : "") +
+        "<p style='margin:4px 0 12px'>Generated: " + new Date().toISOString().slice(0, 10) + "</p>" +
+        (list.length === 0 ? "<p>No paid invoices in this tax year.</p>" :
+        "<table border='1' cellpadding='4' style='border-collapse:collapse;width:100%'>" +
+        "<tr><th>Invoice no</th><th>Client</th><th>Work</th><th>Received</th><th>Channel</th>" +
+        "<th>Remittance ref</th><th>Amount</th><th>Gross PKR</th><th>Fees/tax</th>" +
+        "<th>Net PKR</th><th>Cert</th></tr>" + rows + "</table>" +
+        "<p style='margin-top:12px'><b>Total: " + t.count + " payments</b><br>" +
+        "Gross PKR: " + Math.round(t.gross).toLocaleString() + "<br>" +
+        "Fees/tax: " + Math.round(t.fees).toLocaleString() + "<br>" +
+        "Net received PKR: " + Math.round(t.net).toLocaleString() + "</p>") +
+        missing +
+        "<p style='font-size:12px'>Self-reported from Hisaab records. Not an audited statement. " +
+        "Tax year is taken from the date the payment was received.</p>";
+    }
+
+    document.getElementById("yearPrint").onclick = function () {
+      var ty = Number(document.getElementById("yearSel").value);
+      var msg = document.getElementById("yearMsg");
+      if (!ty) { msg.textContent = "No tax year to print yet."; return; }
+      msg.textContent = "";
+      document.getElementById("printArea").innerHTML = yearStatementHtml(ty);
+      window.print();
+    };
+
+    document.getElementById("yearCsv").onclick = function () {
+      var ty = Number(document.getElementById("yearSel").value);
+      var msg = document.getElementById("yearMsg");
+      if (!ty) { msg.textContent = "No tax year to download yet."; return; }
+      var list = yearRows(ty);
+      if (list.length === 0) { msg.textContent = "No paid invoices in this tax year."; return; }
+      msg.textContent = "";
+      var lines = ["Tax year,Invoice no,Client,Client country,Work,Received date,Channel,Remittance ref,Currency,Amount,Gross PKR,Fees/tax,Net PKR,Certificate uploaded"];
+      for (var i = 0; i < list.length; i++) {
+        var inv = list[i];
+        lines.push([
+          csvCell("TY " + ty), csvCell(inv.invoiceNo), csvCell(inv.client), csvCell(inv.country),
+          csvCell(inv.work), csvCell(inv.receivedDate), csvCell(inv.channel),
+          csvCell(inv.remittanceRef), csvCell(inv.currency), csvCell(inv.amount),
+          csvCell(Math.round(grossPKR(inv))), csvCell(inv.fees || 0),
+          csvCell(Math.round(netReceived(inv))), csvCell(inv.certificatePath ? "Yes" : "No")
+        ].join(","));
+      }
+      var t = yearTotals(list);
+      lines.push(["", "", "", "", "", "", "", "", "", csvCell("TOTAL"),
+        csvCell(Math.round(t.gross)), csvCell(Math.round(t.fees)), csvCell(Math.round(t.net)), ""].join(","));
+      var blob = new Blob([lines.join("\n")], { type: "text/csv" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "hisaab-tax-year-" + ty + ".csv";
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -764,7 +921,7 @@
       window.print();
     }
 
-    /* ---------- Printing: income report ---------- */
+    /* ---------- Printing: income report (all paid) ---------- */
 
     document.getElementById("printReport").onclick = function () {
       var total = 0;
