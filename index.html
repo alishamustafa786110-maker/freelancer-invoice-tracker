@@ -72,6 +72,14 @@
       font-size: 14px;
     }
     #message, #authMsg, #profileMsg, #yearMsg { color: #a32f2f; }
+    .warn {
+      background: #fbe1e1;
+      color: #a32f2f;
+      border-radius: 6px;
+      padding: 10px;
+      font-size: 14px;
+      margin-top: 10px;
+    }
     .totals {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
@@ -162,8 +170,16 @@
       <input id="bizPhone" type="text">
       <label for="bizBank">Bank details (how clients should pay you)</label>
       <textarea id="bizBank" rows="3"></textarea>
+      <label for="bizAtl">ATL status (Active Taxpayers List)</label>
+      <select id="bizAtl">
+        <option value="">Not set</option>
+        <option value="Active">Active on ATL</option>
+        <option value="Not active">Not on ATL</option>
+      </select>
+      <p style="font-size:13px">Saved here once. Each payment records the status as it was on the day you received it.</p>
       <button id="saveProfile" class="btn2">Save business details</button>
       <p id="profileMsg"></p>
+      <div id="atlWarn" class="warn" style="display:none">You are not on ATL. Double withholding applies on local services and commission. Hisaab does not show a tax estimate for you.</div>
     </div>
 
     <div class="box">
@@ -178,20 +194,6 @@
 
       <label for="country">Client country</label>
       <input id="country" type="text">
-
-      <label for="atlStatus">ATL status (Active Taxpayers List)</label>
-      <select id="atlStatus">
-        <option value="">Not set</option>
-        <option value="Active">Active on ATL</option>
-        <option value="Not active">Not on ATL</option>
-      </select>
-
-      <label for="psebReg">PSEB registered</label>
-      <select id="psebReg">
-        <option value="">Not set</option>
-        <option value="Yes">Yes</option>
-        <option value="No">No</option>
-      </select>
 
       <label for="work">Work description</label>
       <input id="work" type="text">
@@ -221,7 +223,7 @@
         <tbody id="list"></tbody>
       </table>
       <p id="empty">No invoices yet. Save your first one above.</p>
-      <p style="font-size:13px">Tap a status to switch between pending and paid. When you mark an invoice paid, you will be asked for the date, the exchange rate that day, bank charges or tax deducted, the channel, the remittance reference, the rate source, and the actual PKR credited. Tap Cert to upload the inward remittance certificate, and View to open it. Tap PDF to make an invoice for your client. Tap ✕ to delete. Totals are in PKR (1 USD = <input id="usdRate" type="number" value="280"> PKR). This rate is saved with each new invoice as its invoice-date rate.</p>
+      <p style="font-size:13px">Tap a status to switch between pending and paid. When you mark an invoice paid, you will be asked for the date, the exchange rate that day, bank charges or tax deducted, the channel, the remittance reference, the rate source, the actual PKR credited, and your ATL status on that day. Tap Cert to upload the inward remittance certificate, and View to open it. Tap PDF to make an invoice for your client. Tap ✕ to delete. Totals are in PKR (1 USD = <input id="usdRate" type="number" value="280"> PKR). This rate is saved with each new invoice as its invoice-date rate.</p>
       <button id="csvBtn" class="btn2" style="margin-top:4px;padding:8px 14px;font-size:14px">Download CSV</button>
     </div>
 
@@ -257,7 +259,7 @@
       <p id="noClients" style="font-size:13px">Clients appear here after your first invoice.</p>
     </div>
 
-    <div class="box">
+    <div class="box" id="taxBox">
       <h2>Tax estimate</h2>
       <label for="income">Yearly income (PKR)</label>
       <input id="income" type="number">
@@ -291,6 +293,7 @@
     var invoices = [];
     var USD_RATE = 280;
     var profileUid = null;
+    var profileAtl = "";
 
     function esc(text) {
       var d = document.createElement("div");
@@ -343,6 +346,14 @@
       return grossPKR(inv) - (inv.fees || 0);
     }
 
+    /* ---------- ATL profile: hides tax estimate for non-ATL users ---------- */
+
+    function applyAtlProfile() {
+      var notActive = profileAtl === "Not active";
+      document.getElementById("atlWarn").style.display = notActive ? "block" : "none";
+      document.getElementById("taxBox").style.display = notActive ? "none" : "block";
+    }
+
     /* ---------- Login ---------- */
 
     function showApp(session) {
@@ -356,11 +367,15 @@
           document.getElementById("bizName").value = meta.business_name || "";
           document.getElementById("bizPhone").value = meta.business_phone || "";
           document.getElementById("bizBank").value = meta.business_bank || "";
+          document.getElementById("bizAtl").value = meta.business_atl || "";
+          profileAtl = meta.business_atl || "";
+          applyAtlProfile();
           profileUid = session.user.id;
         }
         setTimeout(loadInvoices, 0);
       } else {
         profileUid = null;
+        profileAtl = "";
         invoices = [];
         showInvoices();
       }
@@ -403,11 +418,13 @@
 
     document.getElementById("saveProfile").onclick = async function () {
       var msg = document.getElementById("profileMsg");
+      var atl = document.getElementById("bizAtl").value;
       var res = await supabaseClient.auth.updateUser({
         data: {
           business_name: document.getElementById("bizName").value.trim(),
           business_phone: document.getElementById("bizPhone").value.trim(),
-          business_bank: document.getElementById("bizBank").value.trim()
+          business_bank: document.getElementById("bizBank").value.trim(),
+          business_atl: atl
         }
       });
       if (res.error) {
@@ -415,6 +432,8 @@
         msg.textContent = res.error.message;
         return;
       }
+      profileAtl = atl;
+      applyAtlProfile();
       msg.style.color = "#0f6b4f";
       msg.textContent = "Saved.";
     };
@@ -470,7 +489,8 @@
           channel: null,
           remittance_ref: null,
           rate_source: null,
-          pkr_credited: null
+          pkr_credited: null,
+          atl_status: null
         };
       } else {
         var today = new Date().toISOString().slice(0, 10);
@@ -492,6 +512,13 @@
         if (rSrc === null) { return; }
         var pkrCr = prompt("Actual PKR credited to your account (0 if not known):", "0");
         if (pkrCr === null) { return; }
+        var atlDay = prompt("ATL status on the day you received it (Active, Not active, or blank):", profileAtl);
+        if (atlDay === null) { return; }
+        atlDay = atlDay.trim();
+        if (atlDay !== "" && atlDay !== "Active" && atlDay !== "Not active") {
+          alert("Please type Active, Not active, or leave it blank.");
+          return;
+        }
         update = {
           status: "paid",
           received_date: rDate === "" ? today : rDate,
@@ -500,7 +527,8 @@
           channel: channel.trim(),
           remittance_ref: remRef.trim(),
           rate_source: rSrc.trim(),
-          pkr_credited: Number(pkrCr) > 0 ? Number(pkrCr) : null
+          pkr_credited: Number(pkrCr) > 0 ? Number(pkrCr) : null,
+          atl_status: atlDay === "" ? null : atlDay
         };
       }
       var res = await supabaseClient.from("invoices").update(update).eq("id", inv.id);
@@ -516,6 +544,7 @@
       inv.remittanceRef = update.remittance_ref || "";
       inv.rateSource = update.rate_source || "";
       inv.pkrCredited = update.pkr_credited;
+      inv.atlStatus = update.atl_status || "";
       showInvoices();
     }
 
@@ -650,8 +679,6 @@
       var invNo = document.getElementById("invNo").value.trim();
       var client = document.getElementById("client").value.trim();
       var country = document.getElementById("country").value.trim();
-      var atl = document.getElementById("atlStatus").value;
-      var pseb = document.getElementById("psebReg").value;
       var work = document.getElementById("work").value;
       var amount = document.getElementById("amount").value;
       var currency = document.getElementById("currency").value;
@@ -667,8 +694,6 @@
         invoice_no: invNo,
         client_name: client,
         client_country: country,
-        atl_status: atl === "" ? null : atl,
-        pseb_registered: pseb === "" ? null : pseb,
         work: work,
         amount: Number(amount),
         currency: currency,
@@ -682,8 +707,6 @@
       document.getElementById("invNo").value = "";
       document.getElementById("client").value = "";
       document.getElementById("country").value = "";
-      document.getElementById("atlStatus").value = "";
-      document.getElementById("psebReg").value = "";
       document.getElementById("work").value = "";
       document.getElementById("amount").value = "";
       document.getElementById("due").value = "";
@@ -702,7 +725,7 @@
         document.getElementById("message").textContent = "No invoices to download yet.";
         return;
       }
-      var lines = ["Invoice no,Client,Client country,ATL status,PSEB registered,Work,Amount,Currency,Due,Status,Received date,Tax year,Channel,Remittance ref,Rate source,Invoice rate,Receipt rate,Fees/tax,PKR credited,Net received PKR,Certificate uploaded"];
+      var lines = ["Invoice no,Client,Client country,ATL status on receipt date,PSEB registered,Work,Amount,Currency,Due,Status,Received date,Tax year,Channel,Remittance ref,Rate source,Invoice rate,Receipt rate,Fees/tax,PKR credited,Net received PKR,Certificate uploaded"];
       for (var i = 0; i < invoices.length; i++) {
         var inv = invoices[i];
         lines.push([
@@ -804,7 +827,7 @@
         missing = "<p style='color:#a32f2f'><b>Missing:</b> " +
           t.noRef + " without remittance reference, " +
           t.noCert + " without certificate, " +
-          t.noAtl + " without ATL status, " +
+          t.noAtl + " without ATL status on receipt date, " +
           t.noPseb + " without PSEB status.</p>";
       }
 
@@ -816,7 +839,7 @@
         "<p style='margin:4px 0 12px'>Generated: " + new Date().toISOString().slice(0, 10) + "</p>" +
         (list.length === 0 ? "<p>No paid invoices in this tax year.</p>" :
         "<table border='1' cellpadding='4' style='border-collapse:collapse;width:100%'>" +
-        "<tr><th>Invoice no</th><th>Client</th><th>ATL</th><th>PSEB</th><th>Work</th><th>Received</th><th>Channel</th>" +
+        "<tr><th>Invoice no</th><th>Client</th><th>ATL on receipt</th><th>PSEB</th><th>Work</th><th>Received</th><th>Channel</th>" +
         "<th>Remittance ref</th><th>Amount</th><th>Gross PKR</th><th>Fees/tax</th>" +
         "<th>Net PKR</th><th>Cert</th></tr>" + rows + "</table>" +
         "<p style='margin-top:12px'><b>Total: " + t.count + " payments</b><br>" +
@@ -844,7 +867,7 @@
       var list = yearRows(ty);
       if (list.length === 0) { msg.textContent = "No paid invoices in this tax year."; return; }
       msg.textContent = "";
-      var lines = ["Tax year,Invoice no,Client,Client country,ATL status,PSEB registered,Work,Received date,Channel,Remittance ref,Currency,Amount,Gross PKR,Fees/tax,Net PKR,Certificate uploaded"];
+      var lines = ["Tax year,Invoice no,Client,Client country,ATL status on receipt date,PSEB registered,Work,Received date,Channel,Remittance ref,Currency,Amount,Gross PKR,Fees/tax,Net PKR,Certificate uploaded"];
       for (var i = 0; i < list.length; i++) {
         var inv = list[i];
         lines.push([
@@ -856,7 +879,7 @@
         ].join(","));
       }
       var t = yearTotals(list);
-      lines.push(["", "", "", "", "", "", "", "", "", "", "", csvCell("TOTAL"),
+      lines.push(["", "", "", "", "", "", "", "", "", "", csvCell("TOTAL"),
         csvCell(Math.round(t.gross)), csvCell(Math.round(t.fees)), csvCell(Math.round(t.net)), ""].join(","));
       var blob = new Blob([lines.join("\n")], { type: "text/csv" });
       var a = document.createElement("a");
@@ -867,7 +890,7 @@
       document.body.removeChild(a);
     };
 
-    /* ---------- Tax estimate ---------- */
+    /* ---------- Tax estimate (hidden for users not on ATL) ---------- */
 
     var SLABS = [
       [600000, 0, 0],
