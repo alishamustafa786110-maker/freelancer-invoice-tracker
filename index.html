@@ -195,6 +195,30 @@
       <label for="country">Client country</label>
       <input id="country" type="text">
 
+      <label for="outsidePk">Client outside Pakistan?</label>
+      <select id="outsidePk">
+        <option value="">Not set</option>
+        <option value="Yes">Yes</option>
+        <option value="No">No</option>
+      </select>
+
+      <label for="optOut">Opt out of final tax (other services only, each year)</label>
+      <select id="optOut">
+        <option value="">Not set</option>
+        <option value="Yes">Yes</option>
+        <option value="No">No</option>
+      </select>
+
+      <label for="agentType">Agent type (for commission only)</label>
+      <input id="agentType" type="text">
+
+      <label for="srbReg">SRB registered (Sindh sales tax)</label>
+      <select id="srbReg">
+        <option value="">Not set</option>
+        <option value="Yes">Yes</option>
+        <option value="No">No</option>
+      </select>
+
       <label for="work">Work description</label>
       <input id="work" type="text">
 
@@ -454,6 +478,10 @@
           id: r.id,
           invoiceNo: r.invoice_no || "",
           country: r.client_country || "",
+          outsidePk: r.client_outside_pakistan || "",
+          optOut: r.opt_out_flag || "",
+          agentType: r.agent_type || "",
+          srbReg: r.srb_registered || "",
           atlStatus: r.atl_status || "",
           psebReg: r.pseb_registered || "",
           client: r.client_name,
@@ -679,6 +707,10 @@
       var invNo = document.getElementById("invNo").value.trim();
       var client = document.getElementById("client").value.trim();
       var country = document.getElementById("country").value.trim();
+      var outside = document.getElementById("outsidePk").value;
+      var optOut = document.getElementById("optOut").value;
+      var agent = document.getElementById("agentType").value.trim();
+      var srb = document.getElementById("srbReg").value;
       var work = document.getElementById("work").value;
       var amount = document.getElementById("amount").value;
       var currency = document.getElementById("currency").value;
@@ -694,6 +726,10 @@
         invoice_no: invNo,
         client_name: client,
         client_country: country,
+        client_outside_pakistan: outside === "" ? null : outside,
+        opt_out_flag: optOut === "" ? null : optOut,
+        agent_type: agent === "" ? null : agent,
+        srb_registered: srb === "" ? null : srb,
         work: work,
         amount: Number(amount),
         currency: currency,
@@ -707,6 +743,10 @@
       document.getElementById("invNo").value = "";
       document.getElementById("client").value = "";
       document.getElementById("country").value = "";
+      document.getElementById("outsidePk").value = "";
+      document.getElementById("optOut").value = "";
+      document.getElementById("agentType").value = "";
+      document.getElementById("srbReg").value = "";
       document.getElementById("work").value = "";
       document.getElementById("amount").value = "";
       document.getElementById("due").value = "";
@@ -725,11 +765,12 @@
         document.getElementById("message").textContent = "No invoices to download yet.";
         return;
       }
-      var lines = ["Invoice no,Client,Client country,ATL status on receipt date,PSEB registered,Work,Amount,Currency,Due,Status,Received date,Tax year,Channel,Remittance ref,Rate source,Invoice rate,Receipt rate,Fees/tax,PKR credited,Net received PKR,Certificate uploaded"];
+      var lines = ["Invoice no,Client,Client country,Client outside Pakistan,Opt out (other services),Agent type,SRB registered,ATL status on receipt date,PSEB registered,Work,Amount,Currency,Due,Status,Received date,Tax year,Channel,Remittance ref,Rate source,Invoice rate,Receipt rate,Fees/tax,PKR credited,Net received PKR,Certificate uploaded"];
       for (var i = 0; i < invoices.length; i++) {
         var inv = invoices[i];
         lines.push([
           csvCell(inv.invoiceNo), csvCell(inv.client), csvCell(inv.country),
+          csvCell(inv.outsidePk), csvCell(inv.optOut), csvCell(inv.agentType), csvCell(inv.srbReg),
           csvCell(inv.atlStatus), csvCell(inv.psebReg), csvCell(inv.work), csvCell(inv.amount),
           csvCell(inv.currency), csvCell(inv.due), csvCell(getStatus(inv)),
           csvCell(inv.receivedDate || ""), csvCell(taxYear(inv.receivedDate)),
@@ -811,8 +852,11 @@
       for (var i = 0; i < list.length; i++) {
         var inv = list[i];
         rows += "<tr><td>" + esc(inv.invoiceNo) + "</td><td>" + esc(inv.client) +
-          (inv.country ? " (" + esc(inv.country) + ")" : "") + "</td><td>" +
+          (inv.country ? " (" + esc(inv.country) + ")" : "") +
+          (inv.outsidePk ? " outside PK: " + esc(inv.outsidePk) : "") + "</td><td>" +
           esc(inv.atlStatus) + "</td><td>" + esc(inv.psebReg) + "</td><td>" +
+          esc(inv.optOut) + "</td><td>" + esc(inv.agentType) + "</td><td>" +
+          esc(inv.srbReg) + "</td><td>" +
           esc(inv.work) + "</td><td>" + esc(inv.receivedDate) + "</td><td>" +
           esc(inv.channel) + "</td><td>" + esc(inv.remittanceRef) + "</td><td>" +
           esc(inv.currency) + " " + esc(inv.amount) + "</td><td>" +
@@ -839,7 +883,7 @@
         "<p style='margin:4px 0 12px'>Generated: " + new Date().toISOString().slice(0, 10) + "</p>" +
         (list.length === 0 ? "<p>No paid invoices in this tax year.</p>" :
         "<table border='1' cellpadding='4' style='border-collapse:collapse;width:100%'>" +
-        "<tr><th>Invoice no</th><th>Client</th><th>ATL on receipt</th><th>PSEB</th><th>Work</th><th>Received</th><th>Channel</th>" +
+        "<tr><th>Invoice no</th><th>Client</th><th>ATL on receipt</th><th>PSEB</th><th>Opt out</th><th>Agent type</th><th>SRB</th><th>Work</th><th>Received</th><th>Channel</th>" +
         "<th>Remittance ref</th><th>Amount</th><th>Gross PKR</th><th>Fees/tax</th>" +
         "<th>Net PKR</th><th>Cert</th></tr>" + rows + "</table>" +
         "<p style='margin-top:12px'><b>Total: " + t.count + " payments</b><br>" +
@@ -867,11 +911,12 @@
       var list = yearRows(ty);
       if (list.length === 0) { msg.textContent = "No paid invoices in this tax year."; return; }
       msg.textContent = "";
-      var lines = ["Tax year,Invoice no,Client,Client country,ATL status on receipt date,PSEB registered,Work,Received date,Channel,Remittance ref,Currency,Amount,Gross PKR,Fees/tax,Net PKR,Certificate uploaded"];
+      var lines = ["Tax year,Invoice no,Client,Client country,Client outside Pakistan,Opt out (other services),Agent type,SRB registered,ATL status on receipt date,PSEB registered,Work,Received date,Channel,Remittance ref,Currency,Amount,Gross PKR,Fees/tax,Net PKR,Certificate uploaded"];
       for (var i = 0; i < list.length; i++) {
         var inv = list[i];
         lines.push([
           csvCell("TY " + ty), csvCell(inv.invoiceNo), csvCell(inv.client), csvCell(inv.country),
+          csvCell(inv.outsidePk), csvCell(inv.optOut), csvCell(inv.agentType), csvCell(inv.srbReg),
           csvCell(inv.atlStatus), csvCell(inv.psebReg), csvCell(inv.work), csvCell(inv.receivedDate), csvCell(inv.channel),
           csvCell(inv.remittanceRef), csvCell(inv.currency), csvCell(inv.amount),
           csvCell(Math.round(grossPKR(inv))), csvCell(inv.fees || 0),
@@ -879,7 +924,7 @@
         ].join(","));
       }
       var t = yearTotals(list);
-      lines.push(["", "", "", "", "", "", "", "", "", "", csvCell("TOTAL"),
+      lines.push(["", "", "", "", "", "", "", "", "", "", "", "", "", "", csvCell("TOTAL"),
         csvCell(Math.round(t.gross)), csvCell(Math.round(t.fees)), csvCell(Math.round(t.net)), ""].join(","));
       var blob = new Blob([lines.join("\n")], { type: "text/csv" });
       var a = document.createElement("a");
