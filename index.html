@@ -206,7 +206,7 @@
         <tbody id="list"></tbody>
       </table>
       <p id="empty">No invoices yet. Save your first one above.</p>
-      <p style="font-size:13px">Tap a status to switch between pending and paid. When you mark an invoice paid, you will be asked for the date, the exchange rate that day, and any bank charges or tax deducted. Tap PDF to make an invoice for your client. Tap ✕ to delete. Totals are in PKR (1 USD = <input id="usdRate" type="number" value="280"> PKR). This rate is saved with each new invoice as its invoice-date rate.</p>
+      <p style="font-size:13px">Tap a status to switch between pending and paid. When you mark an invoice paid, you will be asked for the date, the exchange rate that day, bank charges or tax deducted, the channel, the remittance reference, the rate source, and the actual PKR credited. Tap PDF to make an invoice for your client. Tap ✕ to delete. Totals are in PKR (1 USD = <input id="usdRate" type="number" value="280"> PKR). This rate is saved with each new invoice as its invoice-date rate.</p>
       <button id="csvBtn" class="btn2" style="margin-top:4px;padding:8px 14px;font-size:14px">Download CSV</button>
     </div>
 
@@ -214,7 +214,7 @@
       <h2>Payment details</h2>
       <table>
         <thead>
-          <tr><th>Client</th><th>Currency diff (PKR)</th><th>Fees/tax</th><th>Net received</th></tr>
+          <tr><th>Client</th><th>Tax year</th><th>Channel</th><th>Currency diff (PKR)</th><th>Fees/tax</th><th>Net received</th></tr>
         </thead>
         <tbody id="payRows"></tbody>
       </table>
@@ -285,6 +285,16 @@
       return "pending";
     }
 
+    /* Pakistan tax year: 1 July to 30 June. Receipts from 1 July 2026 to 30 June 2027 are TY 2027. */
+    function taxYear(dateStr) {
+      if (!dateStr) { return ""; }
+      var d = new Date(dateStr);
+      if (isNaN(d.getTime())) { return ""; }
+      var y = d.getFullYear();
+      var m = d.getMonth() + 1;
+      return "TY " + (m >= 7 ? y + 1 : y);
+    }
+
     /* ---------- Currency difference and net received ---------- */
 
     function fxDiff(inv) {
@@ -293,6 +303,7 @@
     }
 
     function netReceived(inv) {
+      if (inv.pkrCredited) { return Number(inv.pkrCredited); }
       var gross = inv.currency === "USD"
         ? Number(inv.amount) * (Number(inv.receiptRate) || USD_RATE)
         : Number(inv.amount);
@@ -401,7 +412,11 @@
           invoiceRate: r.invoice_rate,
           receiptRate: r.receipt_rate,
           receivedDate: r.received_date,
-          fees: Number(r.fees_deducted) || 0
+          fees: Number(r.fees_deducted) || 0,
+          channel: r.channel || "",
+          remittanceRef: r.remittance_ref || "",
+          rateSource: r.rate_source || "",
+          pkrCredited: r.pkr_credited
         };
       });
       showInvoices();
@@ -411,7 +426,16 @@
       var inv = invoices[index];
       var update;
       if (inv.paid) {
-        update = { status: "pending", received_date: null, receipt_rate: null, fees_deducted: 0 };
+        update = {
+          status: "pending",
+          received_date: null,
+          receipt_rate: null,
+          fees_deducted: 0,
+          channel: null,
+          remittance_ref: null,
+          rate_source: null,
+          pkr_credited: null
+        };
       } else {
         var today = new Date().toISOString().slice(0, 10);
         var rDate = prompt("Date payment received (YYYY-MM-DD):", today);
@@ -424,11 +448,23 @@
         }
         var fees = prompt("Bank charges or tax deducted (PKR, 0 if none):", "0");
         if (fees === null) { return; }
+        var channel = prompt("Channel (Bank, Payoneer, Wise or Other):", "Bank");
+        if (channel === null) { return; }
+        var remRef = prompt("Remittance reference (from bank or Payoneer/Wise):", "");
+        if (remRef === null) { return; }
+        var rSrc = prompt("Rate source (e.g. bank certificate, SBP rate):", "bank certificate");
+        if (rSrc === null) { return; }
+        var pkrCr = prompt("Actual PKR credited to your account (0 if not known):", "0");
+        if (pkrCr === null) { return; }
         update = {
           status: "paid",
           received_date: rDate === "" ? today : rDate,
           receipt_rate: rRate,
-          fees_deducted: Number(fees) || 0
+          fees_deducted: Number(fees) || 0,
+          channel: channel.trim(),
+          remittance_ref: remRef.trim(),
+          rate_source: rSrc.trim(),
+          pkr_credited: Number(pkrCr) > 0 ? Number(pkrCr) : null
         };
       }
       var res = await supabaseClient.from("invoices").update(update).eq("id", inv.id);
@@ -440,6 +476,10 @@
       inv.receivedDate = update.received_date;
       inv.receiptRate = update.receipt_rate;
       inv.fees = update.fees_deducted;
+      inv.channel = update.channel || "";
+      inv.remittanceRef = update.remittance_ref || "";
+      inv.rateSource = update.rate_source || "";
+      inv.pkrCredited = update.pkr_credited;
       showInvoices();
     }
 
@@ -499,6 +539,8 @@
         var pi = invoices[p];
         if (!pi.paid) { continue; }
         payHtml += "<tr><td>" + esc(pi.client) + "</td><td>" +
+          esc(taxYear(pi.receivedDate)) + "</td><td>" +
+          esc(pi.channel) + "</td><td>" +
           Math.round(fxDiff(pi)).toLocaleString() + "</td><td>" +
           Math.round(pi.fees).toLocaleString() + "</td><td>" +
           Math.round(netReceived(pi)).toLocaleString() + "</td></tr>";
@@ -577,14 +619,18 @@
         document.getElementById("message").textContent = "No invoices to download yet.";
         return;
       }
-      var lines = ["Invoice no,Client,Client country,Work,Amount,Currency,Due,Status,Amount in PKR"];
+      var lines = ["Invoice no,Client,Client country,Work,Amount,Currency,Due,Status,Received date,Tax year,Channel,Remittance ref,Rate source,Invoice rate,Receipt rate,Fees/tax,PKR credited,Net received PKR"];
       for (var i = 0; i < invoices.length; i++) {
         var inv = invoices[i];
         lines.push([
           csvCell(inv.invoiceNo), csvCell(inv.client), csvCell(inv.country),
           csvCell(inv.work), csvCell(inv.amount),
           csvCell(inv.currency), csvCell(inv.due), csvCell(getStatus(inv)),
-          csvCell(Math.round(toPKR(inv)))
+          csvCell(inv.receivedDate || ""), csvCell(taxYear(inv.receivedDate)),
+          csvCell(inv.channel), csvCell(inv.remittanceRef), csvCell(inv.rateSource),
+          csvCell(inv.invoiceRate || ""), csvCell(inv.receiptRate || ""),
+          csvCell(inv.fees), csvCell(inv.pkrCredited || ""),
+          csvCell(inv.paid ? Math.round(netReceived(inv)) : "")
         ].join(","));
       }
       var blob = new Blob([lines.join("\n")], { type: "text/csv" });
@@ -690,7 +736,9 @@
             (inv.country ? " (" + esc(inv.country) + ")" : "") +
             "</td><td>" + (esc(inv.work) || "-") +
             "</td><td>" + esc(inv.currency) + " " + esc(inv.amount) +
-            "</td><td>PKR " + Math.round(toPKR(inv)).toLocaleString() + "</td></tr>";
+            "</td><td>PKR " + Math.round(toPKR(inv)).toLocaleString() +
+            "</td><td>" + esc(taxYear(inv.receivedDate)) +
+            "</td><td>" + esc(inv.remittanceRef) + "</td></tr>";
         }
       }
       var name = document.getElementById("bizName").value.trim();
@@ -699,7 +747,7 @@
         (name ? "<p><b>" + esc(name) + "</b></p>" : "") +
         "<p>Generated: " + new Date().toISOString().slice(0, 10) + "</p>" +
         "<table border='1' cellpadding='6' style='border-collapse:collapse;width:100%'>" +
-        "<tr><th>Invoice no</th><th>Client</th><th>Work</th><th>Amount</th><th>In PKR</th></tr>" +
+        "<tr><th>Invoice no</th><th>Client</th><th>Work</th><th>Amount</th><th>In PKR</th><th>Tax year</th><th>Remittance ref</th></tr>" +
         rows + "</table>" +
         "<p><b>Total received: PKR " + Math.round(total).toLocaleString() + "</b></p>" +
         "<p style='font-size:12px'>Self-reported from Hisaab records. Not an audited statement.</p>";
