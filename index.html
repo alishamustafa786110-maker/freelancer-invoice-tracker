@@ -186,6 +186,13 @@
         <option value="Not active">Not on ATL</option>
       </select>
 
+      <label for="psebReg">PSEB registered</label>
+      <select id="psebReg">
+        <option value="">Not set</option>
+        <option value="Yes">Yes</option>
+        <option value="No">No</option>
+      </select>
+
       <label for="work">Work description</label>
       <input id="work" type="text">
 
@@ -429,6 +436,7 @@
           invoiceNo: r.invoice_no || "",
           country: r.client_country || "",
           atlStatus: r.atl_status || "",
+          psebReg: r.pseb_registered || "",
           client: r.client_name,
           work: r.work || "",
           amount: r.amount,
@@ -643,6 +651,7 @@
       var client = document.getElementById("client").value.trim();
       var country = document.getElementById("country").value.trim();
       var atl = document.getElementById("atlStatus").value;
+      var pseb = document.getElementById("psebReg").value;
       var work = document.getElementById("work").value;
       var amount = document.getElementById("amount").value;
       var currency = document.getElementById("currency").value;
@@ -659,6 +668,7 @@
         client_name: client,
         client_country: country,
         atl_status: atl === "" ? null : atl,
+        pseb_registered: pseb === "" ? null : pseb,
         work: work,
         amount: Number(amount),
         currency: currency,
@@ -673,6 +683,7 @@
       document.getElementById("client").value = "";
       document.getElementById("country").value = "";
       document.getElementById("atlStatus").value = "";
+      document.getElementById("psebReg").value = "";
       document.getElementById("work").value = "";
       document.getElementById("amount").value = "";
       document.getElementById("due").value = "";
@@ -691,12 +702,12 @@
         document.getElementById("message").textContent = "No invoices to download yet.";
         return;
       }
-      var lines = ["Invoice no,Client,Client country,ATL status,Work,Amount,Currency,Due,Status,Received date,Tax year,Channel,Remittance ref,Rate source,Invoice rate,Receipt rate,Fees/tax,PKR credited,Net received PKR,Certificate uploaded"];
+      var lines = ["Invoice no,Client,Client country,ATL status,PSEB registered,Work,Amount,Currency,Due,Status,Received date,Tax year,Channel,Remittance ref,Rate source,Invoice rate,Receipt rate,Fees/tax,PKR credited,Net received PKR,Certificate uploaded"];
       for (var i = 0; i < invoices.length; i++) {
         var inv = invoices[i];
         lines.push([
           csvCell(inv.invoiceNo), csvCell(inv.client), csvCell(inv.country),
-          csvCell(inv.atlStatus), csvCell(inv.work), csvCell(inv.amount),
+          csvCell(inv.atlStatus), csvCell(inv.psebReg), csvCell(inv.work), csvCell(inv.amount),
           csvCell(inv.currency), csvCell(inv.due), csvCell(getStatus(inv)),
           csvCell(inv.receivedDate || ""), csvCell(taxYear(inv.receivedDate)),
           csvCell(inv.channel), csvCell(inv.remittanceRef), csvCell(inv.rateSource),
@@ -753,7 +764,7 @@
     }
 
     function yearTotals(list) {
-      var t = { count: list.length, gross: 0, fees: 0, net: 0, noRef: 0, noCert: 0, noAtl: 0 };
+      var t = { count: list.length, gross: 0, fees: 0, net: 0, noRef: 0, noCert: 0, noAtl: 0, noPseb: 0 };
       for (var i = 0; i < list.length; i++) {
         var inv = list[i];
         t.gross += grossPKR(inv);
@@ -762,6 +773,7 @@
         if (!inv.remittanceRef) { t.noRef += 1; }
         if (!inv.certificatePath) { t.noCert += 1; }
         if (!inv.atlStatus) { t.noAtl += 1; }
+        if (!inv.psebReg) { t.noPseb += 1; }
       }
       return t;
     }
@@ -777,7 +789,7 @@
         var inv = list[i];
         rows += "<tr><td>" + esc(inv.invoiceNo) + "</td><td>" + esc(inv.client) +
           (inv.country ? " (" + esc(inv.country) + ")" : "") + "</td><td>" +
-          esc(inv.atlStatus) + "</td><td>" +
+          esc(inv.atlStatus) + "</td><td>" + esc(inv.psebReg) + "</td><td>" +
           esc(inv.work) + "</td><td>" + esc(inv.receivedDate) + "</td><td>" +
           esc(inv.channel) + "</td><td>" + esc(inv.remittanceRef) + "</td><td>" +
           esc(inv.currency) + " " + esc(inv.amount) + "</td><td>" +
@@ -788,11 +800,12 @@
       }
 
       var missing = "";
-      if (t.noRef > 0 || t.noCert > 0 || t.noAtl > 0) {
+      if (t.noRef > 0 || t.noCert > 0 || t.noAtl > 0 || t.noPseb > 0) {
         missing = "<p style='color:#a32f2f'><b>Missing:</b> " +
           t.noRef + " without remittance reference, " +
           t.noCert + " without certificate, " +
-          t.noAtl + " without ATL status.</p>";
+          t.noAtl + " without ATL status, " +
+          t.noPseb + " without PSEB status.</p>";
       }
 
       return "<h1 style='margin:0'>Yearly statement</h1>" +
@@ -803,7 +816,7 @@
         "<p style='margin:4px 0 12px'>Generated: " + new Date().toISOString().slice(0, 10) + "</p>" +
         (list.length === 0 ? "<p>No paid invoices in this tax year.</p>" :
         "<table border='1' cellpadding='4' style='border-collapse:collapse;width:100%'>" +
-        "<tr><th>Invoice no</th><th>Client</th><th>ATL</th><th>Work</th><th>Received</th><th>Channel</th>" +
+        "<tr><th>Invoice no</th><th>Client</th><th>ATL</th><th>PSEB</th><th>Work</th><th>Received</th><th>Channel</th>" +
         "<th>Remittance ref</th><th>Amount</th><th>Gross PKR</th><th>Fees/tax</th>" +
         "<th>Net PKR</th><th>Cert</th></tr>" + rows + "</table>" +
         "<p style='margin-top:12px'><b>Total: " + t.count + " payments</b><br>" +
@@ -831,19 +844,19 @@
       var list = yearRows(ty);
       if (list.length === 0) { msg.textContent = "No paid invoices in this tax year."; return; }
       msg.textContent = "";
-      var lines = ["Tax year,Invoice no,Client,Client country,ATL status,Work,Received date,Channel,Remittance ref,Currency,Amount,Gross PKR,Fees/tax,Net PKR,Certificate uploaded"];
+      var lines = ["Tax year,Invoice no,Client,Client country,ATL status,PSEB registered,Work,Received date,Channel,Remittance ref,Currency,Amount,Gross PKR,Fees/tax,Net PKR,Certificate uploaded"];
       for (var i = 0; i < list.length; i++) {
         var inv = list[i];
         lines.push([
           csvCell("TY " + ty), csvCell(inv.invoiceNo), csvCell(inv.client), csvCell(inv.country),
-          csvCell(inv.atlStatus), csvCell(inv.work), csvCell(inv.receivedDate), csvCell(inv.channel),
+          csvCell(inv.atlStatus), csvCell(inv.psebReg), csvCell(inv.work), csvCell(inv.receivedDate), csvCell(inv.channel),
           csvCell(inv.remittanceRef), csvCell(inv.currency), csvCell(inv.amount),
           csvCell(Math.round(grossPKR(inv))), csvCell(inv.fees || 0),
           csvCell(Math.round(netReceived(inv))), csvCell(inv.certificatePath ? "Yes" : "No")
         ].join(","));
       }
       var t = yearTotals(list);
-      lines.push(["", "", "", "", "", "", "", "", "", "", csvCell("TOTAL"),
+      lines.push(["", "", "", "", "", "", "", "", "", "", "", csvCell("TOTAL"),
         csvCell(Math.round(t.gross)), csvCell(Math.round(t.fees)), csvCell(Math.round(t.net)), ""].join(","));
       var blob = new Blob([lines.join("\n")], { type: "text/csv" });
       var a = document.createElement("a");
