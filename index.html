@@ -126,13 +126,13 @@
     .invno { font-size: 12px; color: #5a6b64; }
     #usdRate { width: 70px; display: inline; padding: 4px 6px; font-size: 14px; }
     #printArea { display: none; }
-@page { size: A4 landscape; margin: 10mm; }
-@media print {
-  body > *:not(#printArea) { display: none !important; }
-  #printArea { display: block !important; color: black; background: white; max-width: none; }
-  #printArea table { font-size: 9px; }
-  #printArea table th, #printArea table td { font-size: 9px; padding: 3px; word-break: break-word; }
-}
+    @page { size: A4 landscape; margin: 10mm; }
+    @media print {
+      body > *:not(#printArea) { display: none !important; }
+      #printArea { display: block !important; color: black; background: white; max-width: none; }
+      #printArea table { font-size: 9px; }
+      #printArea table th, #printArea table td { font-size: 9px; padding: 3px; word-break: normal; overflow-wrap: normal; }
+    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
@@ -202,6 +202,16 @@
         <option value="">Not set</option>
         <option value="Yes">Yes</option>
         <option value="No">No</option>
+      </select>
+
+      <label for="incomeType">Income type</label>
+      <select id="incomeType">
+        <option value="">Not set</option>
+        <option value="Export of IT/ITeS (PSEB)">Export of IT/ITeS (PSEB)</option>
+        <option value="Export of other services">Export of other services</option>
+        <option value="Export of goods">Export of goods</option>
+        <option value="Local services">Local services</option>
+        <option value="Commission">Commission</option>
       </select>
 
       <label for="optOut">Opt out of final tax (other services only, each year)</label>
@@ -481,6 +491,7 @@
           invoiceNo: r.invoice_no || "",
           country: r.client_country || "",
           outsidePk: r.client_outside_pakistan || "",
+          incomeType: r.income_type || "",
           optOut: r.opt_out_flag || "",
           agentType: r.agent_type || "",
           srbReg: r.srb_registered || "",
@@ -710,6 +721,7 @@
       var client = document.getElementById("client").value.trim();
       var country = document.getElementById("country").value.trim();
       var outside = document.getElementById("outsidePk").value;
+      var incomeType = document.getElementById("incomeType").value;
       var optOut = document.getElementById("optOut").value;
       var agent = document.getElementById("agentType").value.trim();
       var srb = document.getElementById("srbReg").value;
@@ -729,6 +741,7 @@
         client_name: client,
         client_country: country,
         client_outside_pakistan: outside === "" ? null : outside,
+        income_type: incomeType === "" ? null : incomeType,
         opt_out_flag: optOut === "" ? null : optOut,
         agent_type: agent === "" ? null : agent,
         srb_registered: srb === "" ? null : srb,
@@ -746,6 +759,7 @@
       document.getElementById("client").value = "";
       document.getElementById("country").value = "";
       document.getElementById("outsidePk").value = "";
+      document.getElementById("incomeType").value = "";
       document.getElementById("optOut").value = "";
       document.getElementById("agentType").value = "";
       document.getElementById("srbReg").value = "";
@@ -767,12 +781,12 @@
         document.getElementById("message").textContent = "No invoices to download yet.";
         return;
       }
-      var lines = ["Invoice no,Client,Client country,Client outside Pakistan,Opt out (other services),Agent type,SRB registered,ATL status on receipt date,PSEB registered,Work,Amount,Currency,Due,Status,Received date,Tax year,Channel,Remittance ref,Rate source,Invoice rate,Receipt rate,Fees/tax,PKR credited,Net received PKR,Certificate uploaded"];
+      var lines = ["Invoice no,Client,Client country,Client outside Pakistan,Income type,Opt out (other services),Agent type,SRB registered,ATL status on receipt date,PSEB registered,Work,Amount,Currency,Due,Status,Received date,Tax year,Channel,Remittance ref,Rate source,Invoice rate,Receipt rate,Fees/tax,PKR credited,Net received PKR,Certificate uploaded"];
       for (var i = 0; i < invoices.length; i++) {
         var inv = invoices[i];
         lines.push([
           csvCell(inv.invoiceNo), csvCell(inv.client), csvCell(inv.country),
-          csvCell(inv.outsidePk), csvCell(inv.optOut), csvCell(inv.agentType), csvCell(inv.srbReg),
+          csvCell(inv.outsidePk), csvCell(inv.incomeType), csvCell(inv.optOut), csvCell(inv.agentType), csvCell(inv.srbReg),
           csvCell(inv.atlStatus), csvCell(inv.psebReg), csvCell(inv.work), csvCell(inv.amount),
           csvCell(inv.currency), csvCell(inv.due), csvCell(getStatus(inv)),
           csvCell(inv.receivedDate || ""), csvCell(taxYear(inv.receivedDate)),
@@ -830,7 +844,7 @@
     }
 
     function yearTotals(list) {
-      var t = { count: list.length, gross: 0, fees: 0, net: 0, noRef: 0, noCert: 0, noAtl: 0, noPseb: 0 };
+      var t = { count: list.length, gross: 0, fees: 0, net: 0, noRef: 0, noCert: 0, noAtl: 0, noPseb: 0, noIncome: 0 };
       for (var i = 0; i < list.length; i++) {
         var inv = list[i];
         t.gross += grossPKR(inv);
@@ -840,6 +854,7 @@
         if (!inv.certificatePath) { t.noCert += 1; }
         if (!inv.atlStatus) { t.noAtl += 1; }
         if (!inv.psebReg) { t.noPseb += 1; }
+        if (!inv.incomeType) { t.noIncome += 1; }
       }
       return t;
     }
@@ -854,12 +869,11 @@
       for (var i = 0; i < list.length; i++) {
         var inv = list[i];
         rows += "<tr><td>" + esc(inv.invoiceNo) + "</td><td>" + esc(inv.client) +
-          (inv.country ? " (" + esc(inv.country) + ")" : "") +
-          (inv.outsidePk ? " outside PK: " + esc(inv.outsidePk) : "") + "</td><td>" +
+          (inv.country ? " (" + esc(inv.country) + ")" : "") + "</td><td>" +
+          esc(inv.incomeType) + "</td><td>" +
           esc(inv.atlStatus) + "</td><td>" + esc(inv.psebReg) + "</td><td>" +
           esc(inv.optOut) + "</td><td>" + esc(inv.agentType) + "</td><td>" +
-          esc(inv.srbReg) + "</td><td>" +
-          esc(inv.work) + "</td><td>" + esc(inv.receivedDate) + "</td><td>" +
+          esc(inv.receivedDate) + "</td><td>" +
           esc(inv.channel) + "</td><td>" + esc(inv.remittanceRef) + "</td><td>" +
           esc(inv.currency) + " " + esc(inv.amount) + "</td><td>" +
           Math.round(grossPKR(inv)).toLocaleString() + "</td><td>" +
@@ -869,12 +883,13 @@
       }
 
       var missing = "";
-      if (t.noRef > 0 || t.noCert > 0 || t.noAtl > 0 || t.noPseb > 0) {
+      if (t.noRef > 0 || t.noCert > 0 || t.noAtl > 0 || t.noPseb > 0 || t.noIncome > 0) {
         missing = "<p style='color:#a32f2f'><b>Missing:</b> " +
           t.noRef + " without remittance reference, " +
           t.noCert + " without certificate, " +
           t.noAtl + " without ATL status on receipt date, " +
-          t.noPseb + " without PSEB status.</p>";
+          t.noPseb + " without PSEB status, " +
+          t.noIncome + " without income type.</p>";
       }
 
       return "<h1 style='margin:0'>Yearly statement</h1>" +
@@ -885,8 +900,8 @@
         "<p style='margin:4px 0 12px'>Generated: " + new Date().toISOString().slice(0, 10) + "</p>" +
         (list.length === 0 ? "<p>No paid invoices in this tax year.</p>" :
         "<table border='1' cellpadding='4' style='border-collapse:collapse;width:100%'>" +
-        "<tr><th>Invoice no</th><th>Client</th><th>ATL on receipt</th><th>PSEB</th><th>Opt out</th><th>Agent type</th><th>SRB</th><th>Work</th><th>Received</th><th>Channel</th>" +
-        "<th>Remittance ref</th><th>Amount</th><th>Gross PKR</th><th>Fees/tax</th>" +
+        "<tr><th>Invoice no</th><th>Client</th><th>Income type</th><th>ATL on receipt</th><th>PSEB</th><th>Opt out</th><th>Agent type</th>" +
+        "<th>Received</th><th>Channel</th><th>Remittance ref</th><th>Amount</th><th>Gross PKR</th><th>Fees/tax</th>" +
         "<th>Net PKR</th><th>Cert</th></tr>" + rows + "</table>" +
         "<p style='margin-top:12px'><b>Total: " + t.count + " payments</b><br>" +
         "Gross PKR: " + Math.round(t.gross).toLocaleString() + "<br>" +
@@ -913,12 +928,12 @@
       var list = yearRows(ty);
       if (list.length === 0) { msg.textContent = "No paid invoices in this tax year."; return; }
       msg.textContent = "";
-      var lines = ["Tax year,Invoice no,Client,Client country,Client outside Pakistan,Opt out (other services),Agent type,SRB registered,ATL status on receipt date,PSEB registered,Work,Received date,Channel,Remittance ref,Currency,Amount,Gross PKR,Fees/tax,Net PKR,Certificate uploaded"];
+      var lines = ["Tax year,Invoice no,Client,Client country,Client outside Pakistan,Income type,Opt out (other services),Agent type,SRB registered,ATL status on receipt date,PSEB registered,Work,Received date,Channel,Remittance ref,Currency,Amount,Gross PKR,Fees/tax,Net PKR,Certificate uploaded"];
       for (var i = 0; i < list.length; i++) {
         var inv = list[i];
         lines.push([
           csvCell("TY " + ty), csvCell(inv.invoiceNo), csvCell(inv.client), csvCell(inv.country),
-          csvCell(inv.outsidePk), csvCell(inv.optOut), csvCell(inv.agentType), csvCell(inv.srbReg),
+          csvCell(inv.outsidePk), csvCell(inv.incomeType), csvCell(inv.optOut), csvCell(inv.agentType), csvCell(inv.srbReg),
           csvCell(inv.atlStatus), csvCell(inv.psebReg), csvCell(inv.work), csvCell(inv.receivedDate), csvCell(inv.channel),
           csvCell(inv.remittanceRef), csvCell(inv.currency), csvCell(inv.amount),
           csvCell(Math.round(grossPKR(inv))), csvCell(inv.fees || 0),
@@ -926,7 +941,7 @@
         ].join(","));
       }
       var t = yearTotals(list);
-      lines.push(["", "", "", "", "", "", "", "", "", "", "", "", "", "", csvCell("TOTAL"),
+      lines.push(["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", csvCell("TOTAL"),
         csvCell(Math.round(t.gross)), csvCell(Math.round(t.fees)), csvCell(Math.round(t.net)), ""].join(","));
       var blob = new Blob([lines.join("\n")], { type: "text/csv" });
       var a = document.createElement("a");
