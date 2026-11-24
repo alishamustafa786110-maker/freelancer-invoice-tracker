@@ -259,7 +259,7 @@
         <tbody id="list"></tbody>
       </table>
       <p id="empty">No invoices yet. Save your first one above.</p>
-      <p style="font-size:13px">Tap a status to switch between pending and paid. When you mark an invoice paid, you will be asked for the date, the exchange rate that day, bank charges or tax deducted, the channel, the remittance reference, the rate source, the actual PKR credited, and your ATL status on that day. Tap Cert to upload the inward remittance certificate, and View to open it. Tap PDF to make an invoice for your client. Tap ✕ to delete. Totals are in PKR (1 USD = <input id="usdRate" type="number" value="280"> PKR). This rate is saved with each new invoice as its invoice-date rate.</p>
+      <p style="font-size:13px">Tap a status to switch between pending and paid. When you mark an invoice paid, you will be asked for the date, the exchange rate that day, bank charges, tax withheld, the channel, the remittance reference, the rate source, the actual PKR credited, and your ATL status on that day. Tap Cert to upload the inward remittance certificate, and View to open it. Tap PDF to make an invoice for your client. Tap ✕ to delete. Totals are in PKR (1 USD = <input id="usdRate" type="number" value="280"> PKR). This rate is used for pending and overdue invoices and is saved with each new invoice as its invoice-date rate. Paid invoices use the rate the bank applied.</p>
       <button id="csvBtn" class="btn2" style="margin-top:4px;padding:8px 14px;font-size:14px">Download CSV</button>
     </div>
 
@@ -267,7 +267,7 @@
       <h2>Payment details</h2>
       <table>
         <thead>
-          <tr><th>Client</th><th>Tax year</th><th>Channel</th><th>Currency diff (PKR)</th><th>Fees/tax</th><th>Net received</th></tr>
+          <tr><th>Client</th><th>Tax year</th><th>Channel</th><th>Currency diff (PKR)</th><th>Bank charges</th><th>Tax withheld</th><th>Net received</th></tr>
         </thead>
         <tbody id="payRows"></tbody>
       </table>
@@ -297,14 +297,15 @@
 
     <div class="box" id="taxBox">
       <h2>Tax estimate</h2>
-      <label for="income">Yearly income (PKR)</label>
-      <input id="income" type="number">
-      <button id="fillIncome" class="btn2" style="padding:10px 14px;font-size:15px;margin-top:12px">Fill from paid invoices</button>
-      <button id="calcTax" class="btn" style="padding:10px 14px;font-size:15px;margin-top:12px">Estimate tax</button>
-      <p style="margin-bottom:0">Estimated tax</p>
-      <p id="taxResult" style="font-size:28px;font-weight:bold;color:#0f6b4f;margin:4px 0">-</p>
-      <p id="taxRate" style="font-size:13px;margin:0"></p>
-      <p style="font-size:13px">Estimate only. These slabs are a sample and change often. Check the current FBR slabs or ask an accountant before filing.</p>
+      <p style="font-size:13px;margin-top:0">Estimate only for IT/ITeS (PSEB) exports (0.25% final tax) and other-services exports (1% final tax), and not if you opted out. All other payments show tax withheld only.</p>
+      <table>
+        <thead>
+          <tr><th>Client</th><th>Type</th><th>Regime</th><th>Estimate</th></tr>
+        </thead>
+        <tbody id="estRows"></tbody>
+      </table>
+      <p id="noEst" style="font-size:13px">Mark an invoice as paid to see it here.</p>
+      <p style="font-size:13px">Estimate only. Check with an accountant before filing.</p>
     </div>
 
     <div class="box">
@@ -364,6 +365,33 @@
       return n ? "TY " + n : "";
     }
 
+    /* ---------- Tax rates by tax year (Framework v3.3) ----------
+       PSEB IT/ITeS export: 0.25% final tax (extended to TY 2029).
+       Other services export: 1% final tax (TY 2027), unless opted out.
+       Add rates for a new tax year only after they are confirmed. */
+
+    var RATES = {
+      2027: { pseb: 0.0025, other: 0.01 }
+    };
+
+    function taxInfo(inv) {
+      var r = RATES[taxYearNum(inv.receivedDate)];
+      var t = inv.incomeType;
+      if (!r) { return { regime: "", estimate: null }; }
+      var base = grossPKR(inv);
+      var okAtl = inv.atlStatus !== "Not active";
+      if (t === "Export of IT/ITeS (PSEB)") {
+        return { regime: "Final", estimate: okAtl ? base * r.pseb : null };
+      }
+      if (t === "Export of other services") {
+        return { regime: "Final", estimate: (okAtl && inv.optOut !== "Yes") ? base * r.other : null };
+      }
+      if (t === "Export of goods" || t === "Local services" || t === "Commission") {
+        return { regime: "Minimum", estimate: null };
+      }
+      return { regime: "", estimate: null };
+    }
+
     /* ---------- Currency difference and net received ---------- */
 
     function fxDiff(inv) {
@@ -379,7 +407,7 @@
 
     function netReceived(inv) {
       if (inv.pkrCredited) { return Number(inv.pkrCredited); }
-      return grossPKR(inv) - (inv.fees || 0);
+      return grossPKR(inv) - (inv.fees || 0) - (inv.taxWithheld || 0);
     }
 
     /* ---------- ATL profile: hides tax estimate for non-ATL users ---------- */
@@ -508,6 +536,7 @@
           receiptRate: r.receipt_rate,
           receivedDate: r.received_date,
           fees: Number(r.fees_deducted) || 0,
+          taxWithheld: Number(r.tax_withheld) || 0,
           channel: r.channel || "",
           remittanceRef: r.remittance_ref || "",
           rateSource: r.rate_source || "",
@@ -527,6 +556,7 @@
           received_date: null,
           receipt_rate: null,
           fees_deducted: 0,
+          tax_withheld: null,
           channel: null,
           remittance_ref: null,
           rate_source: null,
@@ -537,14 +567,21 @@
         var today = new Date().toISOString().slice(0, 10);
         var rDate = prompt("Date payment received (YYYY-MM-DD):", today);
         if (rDate === null) { return; }
+        rDate = rDate.trim();
+        if (rDate !== "" && !/^\d{4}-\d{2}-\d{2}$/.test(rDate)) {
+          alert("Date YYYY-MM-DD format mein likho, jaise 2026-11-24.");
+          return;
+        }
         var rRate = null;
         if (inv.currency === "USD") {
           var rr = prompt("USD to PKR rate on the day you received it:", USD_RATE);
           if (rr === null) { return; }
           rRate = Number(rr) > 0 ? Number(rr) : USD_RATE;
         }
-        var fees = prompt("Bank charges or tax deducted (PKR, 0 if none):", "0");
+        var fees = prompt("Bank charges (PKR, 0 if none):", "0");
         if (fees === null) { return; }
+        var taxW = prompt("Tax withheld (PKR, 0 if none):", "0");
+        if (taxW === null) { return; }
         var channel = prompt("Channel (Bank, Payoneer, Wise or Other):", "Bank");
         if (channel === null) { return; }
         var remRef = prompt("Remittance reference (from bank or Payoneer/Wise):", "");
@@ -565,6 +602,7 @@
           received_date: rDate === "" ? today : rDate,
           receipt_rate: rRate,
           fees_deducted: Number(fees) || 0,
+          tax_withheld: Number(taxW) || 0,
           channel: channel.trim(),
           remittance_ref: remRef.trim(),
           rate_source: rSrc.trim(),
@@ -581,6 +619,7 @@
       inv.receivedDate = update.received_date;
       inv.receiptRate = update.receipt_rate;
       inv.fees = update.fees_deducted;
+      inv.taxWithheld = update.tax_withheld || 0;
       inv.channel = update.channel || "";
       inv.remittanceRef = update.remittance_ref || "";
       inv.rateSource = update.rate_source || "";
@@ -646,7 +685,7 @@
       for (var i = 0; i < invoices.length; i++) {
         var inv = invoices[i];
         var status = getStatus(inv);
-        var value = toPKR(inv);
+        var value = status === "paid" ? grossPKR(inv) : toPKR(inv);
 
         if (status === "paid") { paid += value; }
         else if (status === "overdue") { overdue += value; }
@@ -688,10 +727,25 @@
           esc(pi.channel) + "</td><td>" +
           Math.round(fxDiff(pi)).toLocaleString() + "</td><td>" +
           Math.round(pi.fees).toLocaleString() + "</td><td>" +
+          Math.round(pi.taxWithheld).toLocaleString() + "</td><td>" +
           Math.round(netReceived(pi)).toLocaleString() + "</td></tr>";
       }
       document.getElementById("payRows").innerHTML = payHtml;
       document.getElementById("noPay").style.display = payHtml ? "none" : "block";
+
+      var estHtml = "";
+      for (var e = 0; e < invoices.length; e++) {
+        var ei = invoices[e];
+        if (!ei.paid) { continue; }
+        var ti = taxInfo(ei);
+        estHtml += "<tr><td>" + esc(ei.client) + "</td><td>" + esc(ei.incomeType) + "</td><td>" +
+          esc(ti.regime) + "</td><td>" +
+          (ti.estimate != null
+            ? "PKR " + Math.round(ti.estimate).toLocaleString()
+            : "Withheld: " + Math.round(ei.taxWithheld).toLocaleString()) + "</td></tr>";
+      }
+      document.getElementById("estRows").innerHTML = estHtml;
+      document.getElementById("noEst").style.display = estHtml ? "none" : "block";
 
       var names = Object.keys(clients);
       var clientHtml = "";
@@ -735,13 +789,19 @@
         msg.textContent = "Please enter the client name and amount.";
         return;
       }
+      if (incomeType === "") {
+        msg.textContent = "Please choose the income type.";
+        return;
+      }
 
       var res = await supabaseClient.from("invoices").insert({
         invoice_no: invNo,
         client_name: client,
         client_country: country,
         client_outside_pakistan: outside === "" ? null : outside,
-        income_type: incomeType === "" ? null : incomeType,
+        income_type: incomeType,
+        pseb_registered: incomeType === "Export of IT/ITeS (PSEB)" ? "Yes" :
+          (incomeType === "Export of other services" ? "No" : null),
         opt_out_flag: optOut === "" ? null : optOut,
         agent_type: agent === "" ? null : agent,
         srb_registered: srb === "" ? null : srb,
@@ -781,7 +841,7 @@
         document.getElementById("message").textContent = "No invoices to download yet.";
         return;
       }
-      var lines = ["Invoice no,Client,Client country,Client outside Pakistan,Income type,Opt out (other services),Agent type,SRB registered,ATL status on receipt date,PSEB registered,Work,Amount,Currency,Due,Status,Received date,Tax year,Channel,Remittance ref,Rate source,Invoice rate,Receipt rate,Fees/tax,PKR credited,Net received PKR,Certificate uploaded"];
+      var lines = ["Invoice no,Client,Client country,Client outside Pakistan,Income type,Opt out (other services),Agent type,SRB registered,ATL status on receipt date,PSEB registered,Work,Amount,Currency,Due,Status,Received date,Tax year,Channel,Remittance ref,Rate source,Invoice rate,Receipt rate,Bank charges,Tax withheld,PKR credited,Net received PKR,Certificate uploaded"];
       for (var i = 0; i < invoices.length; i++) {
         var inv = invoices[i];
         lines.push([
@@ -792,7 +852,7 @@
           csvCell(inv.receivedDate || ""), csvCell(taxYear(inv.receivedDate)),
           csvCell(inv.channel), csvCell(inv.remittanceRef), csvCell(inv.rateSource),
           csvCell(inv.invoiceRate || ""), csvCell(inv.receiptRate || ""),
-          csvCell(inv.fees), csvCell(inv.pkrCredited || ""),
+          csvCell(inv.fees), csvCell(inv.taxWithheld), csvCell(inv.pkrCredited || ""),
           csvCell(inv.paid ? Math.round(netReceived(inv)) : ""),
           csvCell(inv.certificatePath ? "Yes" : "No")
         ].join(","));
@@ -844,17 +904,20 @@
     }
 
     function yearTotals(list) {
-      var t = { count: list.length, gross: 0, fees: 0, net: 0, noRef: 0, noCert: 0, noAtl: 0, noPseb: 0, noIncome: 0 };
+      var t = { count: list.length, gross: 0, fees: 0, tax: 0, net: 0, noRef: 0, noCert: 0, noAtl: 0, noPseb: 0, noIncome: 0 };
       for (var i = 0; i < list.length; i++) {
         var inv = list[i];
         t.gross += grossPKR(inv);
         t.fees += inv.fees || 0;
+        t.tax += inv.taxWithheld || 0;
         t.net += netReceived(inv);
         if (!inv.remittanceRef) { t.noRef += 1; }
         if (!inv.certificatePath) { t.noCert += 1; }
         if (!inv.atlStatus) { t.noAtl += 1; }
-        if (!inv.psebReg) { t.noPseb += 1; }
         if (!inv.incomeType) { t.noIncome += 1; }
+        if (!inv.psebReg && (inv.incomeType === "Export of IT/ITeS (PSEB)" || inv.incomeType === "Export of other services")) {
+          t.noPseb += 1;
+        }
       }
       return t;
     }
@@ -878,6 +941,7 @@
           esc(inv.currency) + " " + esc(inv.amount) + "</td><td>" +
           Math.round(grossPKR(inv)).toLocaleString() + "</td><td>" +
           Math.round(inv.fees || 0).toLocaleString() + "</td><td>" +
+          Math.round(inv.taxWithheld || 0).toLocaleString() + "</td><td>" +
           Math.round(netReceived(inv)).toLocaleString() + "</td><td>" +
           (inv.certificatePath ? "Yes" : "No") + "</td></tr>";
       }
@@ -901,11 +965,12 @@
         (list.length === 0 ? "<p>No paid invoices in this tax year.</p>" :
         "<table border='1' cellpadding='4' style='border-collapse:collapse;width:100%'>" +
         "<tr><th>Invoice no</th><th>Client</th><th>Income type</th><th>ATL on receipt</th><th>PSEB</th><th>Opt out</th><th>Agent type</th>" +
-        "<th>Received</th><th>Channel</th><th>Remittance ref</th><th>Amount</th><th>Gross PKR</th><th>Fees/tax</th>" +
+        "<th>Received</th><th>Channel</th><th>Remittance ref</th><th>Amount</th><th>Gross PKR</th><th>Bank charges</th><th>Tax withheld</th>" +
         "<th>Net PKR</th><th>Cert</th></tr>" + rows + "</table>" +
         "<p style='margin-top:12px'><b>Total: " + t.count + " payments</b><br>" +
         "Gross PKR: " + Math.round(t.gross).toLocaleString() + "<br>" +
-        "Fees/tax: " + Math.round(t.fees).toLocaleString() + "<br>" +
+        "Bank charges: " + Math.round(t.fees).toLocaleString() + "<br>" +
+        "Tax withheld: " + Math.round(t.tax).toLocaleString() + "<br>" +
         "Net received PKR: " + Math.round(t.net).toLocaleString() + "</p>") +
         missing +
         "<p style='font-size:12px'>Self-reported from Hisaab records. Not an audited statement. " +
@@ -928,7 +993,7 @@
       var list = yearRows(ty);
       if (list.length === 0) { msg.textContent = "No paid invoices in this tax year."; return; }
       msg.textContent = "";
-      var lines = ["Tax year,Invoice no,Client,Client country,Client outside Pakistan,Income type,Opt out (other services),Agent type,SRB registered,ATL status on receipt date,PSEB registered,Work,Received date,Channel,Remittance ref,Currency,Amount,Gross PKR,Fees/tax,Net PKR,Certificate uploaded"];
+      var lines = ["Tax year,Invoice no,Client,Client country,Client outside Pakistan,Income type,Opt out (other services),Agent type,SRB registered,ATL status on receipt date,PSEB registered,Work,Received date,Channel,Remittance ref,Currency,Amount,Gross PKR,Bank charges,Tax withheld,Net PKR,Certificate uploaded"];
       for (var i = 0; i < list.length; i++) {
         var inv = list[i];
         lines.push([
@@ -936,13 +1001,14 @@
           csvCell(inv.outsidePk), csvCell(inv.incomeType), csvCell(inv.optOut), csvCell(inv.agentType), csvCell(inv.srbReg),
           csvCell(inv.atlStatus), csvCell(inv.psebReg), csvCell(inv.work), csvCell(inv.receivedDate), csvCell(inv.channel),
           csvCell(inv.remittanceRef), csvCell(inv.currency), csvCell(inv.amount),
-          csvCell(Math.round(grossPKR(inv))), csvCell(inv.fees || 0),
+          csvCell(Math.round(grossPKR(inv))), csvCell(inv.fees || 0), csvCell(inv.taxWithheld || 0),
           csvCell(Math.round(netReceived(inv))), csvCell(inv.certificatePath ? "Yes" : "No")
         ].join(","));
       }
       var t = yearTotals(list);
-      lines.push(["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", csvCell("TOTAL"),
-        csvCell(Math.round(t.gross)), csvCell(Math.round(t.fees)), csvCell(Math.round(t.net)), ""].join(","));
+      lines.push(["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", csvCell("TOTAL"), "",
+        csvCell(Math.round(t.gross)), csvCell(Math.round(t.fees)), csvCell(Math.round(t.tax)),
+        csvCell(Math.round(t.net)), ""].join(","));
       var blob = new Blob([lines.join("\n")], { type: "text/csv" });
       var a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
@@ -950,47 +1016,6 @@
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-    };
-
-    /* ---------- Tax estimate (hidden for users not on ATL) ---------- */
-
-    var SLABS = [
-      [600000, 0, 0],
-      [1200000, 0.01, 0],
-      [2200000, 0.11, 6000],
-      [3200000, 0.23, 116000],
-      [4100000, 0.30, 346000],
-      [Infinity, 0.35, 616000]
-    ];
-
-    function calcTax(income) {
-      var previous = 0;
-      for (var i = 0; i < SLABS.length; i++) {
-        if (income <= SLABS[i][0]) {
-          return SLABS[i][2] + (income - previous) * SLABS[i][1];
-        }
-        previous = SLABS[i][0];
-      }
-    }
-
-    document.getElementById("fillIncome").onclick = function () {
-      var total = 0;
-      for (var i = 0; i < invoices.length; i++) {
-        if (getStatus(invoices[i]) === "paid") {
-          total += toPKR(invoices[i]);
-        }
-      }
-      document.getElementById("income").value = Math.round(total);
-    };
-
-    document.getElementById("calcTax").onclick = function () {
-      var income = Number(document.getElementById("income").value);
-      if (income < 0) { return; }
-      var tax = calcTax(income);
-      document.getElementById("taxResult").textContent =
-        "PKR " + Math.round(tax).toLocaleString();
-      document.getElementById("taxRate").textContent =
-        income > 0 ? "Effective rate: " + (tax / income * 100).toFixed(1) + "%" : "";
     };
 
     /* ---------- Printing: single invoice ---------- */
@@ -1041,12 +1066,12 @@
       for (var i = 0; i < invoices.length; i++) {
         var inv = invoices[i];
         if (getStatus(inv) === "paid") {
-          total += toPKR(inv);
+          total += grossPKR(inv);
           rows += "<tr><td>" + esc(inv.invoiceNo) + "</td><td>" + esc(inv.client) +
             (inv.country ? " (" + esc(inv.country) + ")" : "") +
             "</td><td>" + (esc(inv.work) || "-") +
             "</td><td>" + esc(inv.currency) + " " + esc(inv.amount) +
-            "</td><td>PKR " + Math.round(toPKR(inv)).toLocaleString() +
+            "</td><td>PKR " + Math.round(grossPKR(inv)).toLocaleString() +
             "</td><td>" + esc(taxYear(inv.receivedDate)) +
             "</td><td>" + esc(inv.remittanceRef) +
             "</td><td>" + (inv.certificatePath ? "Yes" : "No") + "</td></tr>";
