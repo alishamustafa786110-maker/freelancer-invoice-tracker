@@ -181,7 +181,7 @@
       <p style="font-size:13px">Saved here once. Each payment records the status as it was on the day you received it.</p>
       <button id="saveProfile" class="btn2">Save business details</button>
       <p id="profileMsg"></p>
-      <div id="atlWarn" class="warn" style="display:none">You are not on ATL. Double withholding applies on local services and commission. Hisaab does not show a tax estimate for you.</div>
+      <div id="atlWarn" class="warn" style="display:none">You are not on ATL. Double withholding applies on local services and commission. Hisaab does not show a tax estimate for you. It shows tax withheld, so please file your return and withholding statements.</div>
     </div>
 
     <div class="box">
@@ -190,7 +190,7 @@
       <label for="invNo">Invoice number (optional)</label>
       <input id="invNo" type="text">
 
-      <label for="client">Client name</label>
+      <label for="client" id="clientLabel">Client name</label>
       <input id="client" type="text" list="clientList">
       <datalist id="clientList"></datalist>
 
@@ -214,15 +214,29 @@
         <option value="Commission">Commission</option>
       </select>
 
-      <label for="optOut">Opt out of final tax (other services only, each year)</label>
-      <select id="optOut">
-        <option value="">Not set</option>
-        <option value="Yes">Yes</option>
-        <option value="No">No</option>
-      </select>
+      <div id="wrapOptOut" style="display:none">
+        <label for="optOut">Opt out of final tax (this year)</label>
+        <select id="optOut">
+          <option value="">Not set</option>
+          <option value="Yes">Yes</option>
+          <option value="No">No</option>
+        </select>
+      </div>
 
-      <label for="agentType">Agent type (for commission only)</label>
-      <input id="agentType" type="text">
+      <div id="wrapAgent" style="display:none">
+        <label for="agentType">Agent type</label>
+        <select id="agentType">
+          <option value="">Not set</option>
+          <option value="Advertising agent">Advertising agent</option>
+          <option value="Life insurance agent (commission under Rs 0.5m)">Life insurance agent (commission under Rs 0.5m)</option>
+          <option value="Other agent">Other agent</option>
+        </select>
+      </div>
+
+      <div id="wrapNtn" style="display:none">
+        <label for="ntn">Client NTN</label>
+        <input id="ntn" type="text">
+      </div>
 
       <label for="srbReg">SRB registered (Sindh sales tax)</label>
       <select id="srbReg">
@@ -297,7 +311,7 @@
 
     <div class="box" id="taxBox">
       <h2>Tax estimate</h2>
-      <p style="font-size:13px;margin-top:0">Estimate only for IT/ITeS (PSEB) exports (0.25% final tax) and other-services exports (1% final tax), and not if you opted out. All other payments show tax withheld only.</p>
+      <p style="font-size:13px;margin-top:0">Estimate only for IT/ITeS (PSEB) exports (0.25% final tax) and other-services exports (1% final tax), and not if you opted out or are not on ATL. All other payments show tax withheld, with the applicable rate for reference.</p>
       <table>
         <thead>
           <tr><th>Client</th><th>Type</th><th>Regime</th><th>Estimate</th></tr>
@@ -371,8 +385,21 @@
        Add rates for a new tax year only after they are confirmed. */
 
     var RATES = {
-      2027: { pseb: 0.0025, other: 0.01 }
+      2027: { pseb: 0.0025, other: 0.01, goods: 0.0125, local: 0.04,
+              commission: { adv: 0.10, life: 0.08, other: 0.12 } }
     };
+
+    function pct(x) {
+      return (x * 100).toFixed(2).replace(/\.?0+$/, "") + "%";
+    }
+
+    function agentKey(a) {
+      var v = String(a || "").toLowerCase();
+      if (v.indexOf("advertis") !== -1) { return "adv"; }
+      if (v.indexOf("life") !== -1) { return "life"; }
+      if (v.indexOf("other") !== -1) { return "other"; }
+      return null;
+    }
 
     function taxInfo(inv) {
       var r = RATES[taxYearNum(inv.receivedDate)];
@@ -380,14 +407,29 @@
       if (!r) { return { regime: "", estimate: null }; }
       var base = grossPKR(inv);
       var okAtl = inv.atlStatus !== "Not active";
+      var fileNote = "Not on ATL: file your return and withholding statements.";
       if (t === "Export of IT/ITeS (PSEB)") {
-        return { regime: "Final", estimate: okAtl ? base * r.pseb : null };
+        return okAtl ? { regime: "Final", estimate: base * r.pseb }
+                     : { regime: "Final", estimate: null, note: fileNote };
       }
       if (t === "Export of other services") {
-        return { regime: "Final", estimate: (okAtl && inv.optOut !== "Yes") ? base * r.other : null };
+        if (!okAtl) { return { regime: "Final", estimate: null, note: fileNote }; }
+        if (inv.optOut === "Yes") {
+          return { regime: "Normal", estimate: null, note: "Opted out of final tax: assessed in your return." };
+        }
+        return { regime: "Final", estimate: base * r.other };
       }
-      if (t === "Export of goods" || t === "Local services" || t === "Commission") {
-        return { regime: "Minimum", estimate: null };
+      if (t === "Export of goods") {
+        return { regime: "Minimum", estimate: null, note: "Minimum tax rate: " + pct(r.goods) };
+      }
+      if (t === "Local services") {
+        return { regime: "Minimum", estimate: null, note: "Minimum tax rate: " + pct(r.local) + " (double if not on ATL)" };
+      }
+      if (t === "Commission") {
+        var ak = agentKey(inv.agentType);
+        return { regime: "Minimum", estimate: null,
+          note: ak ? "Minimum tax rate for this agent type: " + pct(r.commission[ak]) + " (double if not on ATL)"
+                   : "Agent type not set" };
       }
       return { regime: "", estimate: null };
     }
@@ -415,7 +457,6 @@
     function applyAtlProfile() {
       var notActive = profileAtl === "Not active";
       document.getElementById("atlWarn").style.display = notActive ? "block" : "none";
-      document.getElementById("taxBox").style.display = notActive ? "none" : "block";
     }
 
     /* ---------- Login ---------- */
@@ -537,6 +578,9 @@
           receivedDate: r.received_date,
           fees: Number(r.fees_deducted) || 0,
           taxWithheld: Number(r.tax_withheld) || 0,
+          certificateNo: r.certificate_no || "",
+          ntn: r.ntn || "",
+          buyerCountry: r.buyer_country || "",
           channel: r.channel || "",
           remittanceRef: r.remittance_ref || "",
           rateSource: r.rate_source || "",
@@ -557,6 +601,7 @@
           receipt_rate: null,
           fees_deducted: 0,
           tax_withheld: null,
+          certificate_no: null,
           channel: null,
           remittance_ref: null,
           rate_source: null,
@@ -586,8 +631,17 @@
         if (channel === null) { return; }
         var remRef = prompt("Remittance reference (from bank or Payoneer/Wise):", "");
         if (remRef === null) { return; }
-        var rSrc = prompt("Rate source (e.g. bank certificate, SBP rate):", "bank certificate");
-        if (rSrc === null) { return; }
+        var rsChoice = prompt("Rate source: 1 = Bank certificate, 2 = SBP rate (reference only), 3 = Other", "1");
+        if (rsChoice === null) { return; }
+        rsChoice = rsChoice.trim();
+        if (rsChoice !== "1" && rsChoice !== "2" && rsChoice !== "3") {
+          alert("Type 1, 2 or 3.");
+          return;
+        }
+        if (rsChoice === "2") {
+          alert("SBP rate sirf reference ke liye hai. Hisaab mein bank certificate wala rate use karo.");
+        }
+        var rSrc = rsChoice === "1" ? "bank certificate" : (rsChoice === "2" ? "SBP rate (reference only)" : "other");
         var pkrCr = prompt("Actual PKR credited to your account (0 if not known):", "0");
         if (pkrCr === null) { return; }
         var atlDay = prompt("ATL status on the day you received it (Active, Not active, or blank):", profileAtl);
@@ -597,12 +651,19 @@
           alert("Please type Active, Not active, or leave it blank.");
           return;
         }
+        var certNo = "";
+        if (inv.incomeType === "Local services" || inv.incomeType === "Commission") {
+          var cn = prompt("Withholding certificate no. from the client or principal:", "");
+          if (cn === null) { return; }
+          certNo = cn.trim();
+        }
         update = {
           status: "paid",
           received_date: rDate === "" ? today : rDate,
           receipt_rate: rRate,
           fees_deducted: Number(fees) || 0,
           tax_withheld: Number(taxW) || 0,
+          certificate_no: certNo === "" ? null : certNo,
           channel: channel.trim(),
           remittance_ref: remRef.trim(),
           rate_source: rSrc.trim(),
@@ -620,6 +681,7 @@
       inv.receiptRate = update.receipt_rate;
       inv.fees = update.fees_deducted;
       inv.taxWithheld = update.tax_withheld || 0;
+      inv.certificateNo = update.certificate_no || "";
       inv.channel = update.channel || "";
       inv.remittanceRef = update.remittance_ref || "";
       inv.rateSource = update.rate_source || "";
@@ -742,7 +804,8 @@
           esc(ti.regime) + "</td><td>" +
           (ti.estimate != null
             ? "PKR " + Math.round(ti.estimate).toLocaleString()
-            : "Withheld: " + Math.round(ei.taxWithheld).toLocaleString()) + "</td></tr>";
+            : "Withheld: " + Math.round(ei.taxWithheld).toLocaleString() +
+              (ti.note ? "<div class='invno'>" + esc(ti.note) + "</div>" : "")) + "</td></tr>";
       }
       document.getElementById("estRows").innerHTML = estHtml;
       document.getElementById("noEst").style.display = estHtml ? "none" : "block";
@@ -770,6 +833,15 @@
       }
     };
 
+    function updateIncomeFields() {
+      var t = document.getElementById("incomeType").value;
+      document.getElementById("wrapOptOut").style.display = t === "Export of other services" ? "block" : "none";
+      document.getElementById("wrapAgent").style.display = t === "Commission" ? "block" : "none";
+      document.getElementById("wrapNtn").style.display = t === "Local services" ? "block" : "none";
+      document.getElementById("clientLabel").textContent = t === "Commission" ? "Principal name" : "Client name";
+    }
+    document.getElementById("incomeType").onchange = updateIncomeFields;
+
     document.getElementById("saveBtn").onclick = async function () {
       var invNo = document.getElementById("invNo").value.trim();
       var client = document.getElementById("client").value.trim();
@@ -778,6 +850,7 @@
       var incomeType = document.getElementById("incomeType").value;
       var optOut = document.getElementById("optOut").value;
       var agent = document.getElementById("agentType").value.trim();
+      var ntn = document.getElementById("ntn").value.trim();
       var srb = document.getElementById("srbReg").value;
       var work = document.getElementById("work").value;
       var amount = document.getElementById("amount").value;
@@ -793,6 +866,10 @@
         msg.textContent = "Please choose the income type.";
         return;
       }
+      if (incomeType === "Commission" && agent === "") {
+        msg.textContent = "Please choose the agent type. The rate depends on it.";
+        return;
+      }
 
       var res = await supabaseClient.from("invoices").insert({
         invoice_no: invNo,
@@ -802,8 +879,10 @@
         income_type: incomeType,
         pseb_registered: incomeType === "Export of IT/ITeS (PSEB)" ? "Yes" :
           (incomeType === "Export of other services" ? "No" : null),
-        opt_out_flag: optOut === "" ? null : optOut,
-        agent_type: agent === "" ? null : agent,
+        opt_out_flag: (incomeType === "Export of other services" && optOut !== "") ? optOut : null,
+        agent_type: (incomeType === "Commission" && agent !== "") ? agent : null,
+        ntn: (incomeType === "Local services" && ntn !== "") ? ntn : null,
+        buyer_country: (incomeType === "Export of goods" && country !== "") ? country : null,
         srb_registered: srb === "" ? null : srb,
         work: work,
         amount: Number(amount),
@@ -826,6 +905,8 @@
       document.getElementById("work").value = "";
       document.getElementById("amount").value = "";
       document.getElementById("due").value = "";
+      document.getElementById("ntn").value = "";
+      updateIncomeFields();
 
       await loadInvoices();
     };
@@ -841,7 +922,7 @@
         document.getElementById("message").textContent = "No invoices to download yet.";
         return;
       }
-      var lines = ["Invoice no,Client,Client country,Client outside Pakistan,Income type,Opt out (other services),Agent type,SRB registered,ATL status on receipt date,PSEB registered,Work,Amount,Currency,Due,Status,Received date,Tax year,Channel,Remittance ref,Rate source,Invoice rate,Receipt rate,Bank charges,Tax withheld,PKR credited,Net received PKR,Certificate uploaded"];
+      var lines = ["Invoice no,Client,Client country,Client outside Pakistan,Income type,Opt out (other services),Agent type,SRB registered,ATL status on receipt date,PSEB registered,Work,Amount,Currency,Due,Status,Received date,Tax year,Channel,Remittance ref,Rate source,Invoice rate,Receipt rate,Bank charges,Tax withheld,PKR credited,Net received PKR,Certificate uploaded,Client NTN,Withholding certificate no."];
       for (var i = 0; i < invoices.length; i++) {
         var inv = invoices[i];
         lines.push([
@@ -854,7 +935,7 @@
           csvCell(inv.invoiceRate || ""), csvCell(inv.receiptRate || ""),
           csvCell(inv.fees), csvCell(inv.taxWithheld), csvCell(inv.pkrCredited || ""),
           csvCell(inv.paid ? Math.round(netReceived(inv)) : ""),
-          csvCell(inv.certificatePath ? "Yes" : "No")
+          csvCell(inv.certificatePath ? "Yes" : "No"), csvCell(inv.ntn), csvCell(inv.certificateNo)
         ].join(","));
       }
       var blob = new Blob([lines.join("\n")], { type: "text/csv" });
@@ -993,7 +1074,7 @@
       var list = yearRows(ty);
       if (list.length === 0) { msg.textContent = "No paid invoices in this tax year."; return; }
       msg.textContent = "";
-      var lines = ["Tax year,Invoice no,Client,Client country,Client outside Pakistan,Income type,Opt out (other services),Agent type,SRB registered,ATL status on receipt date,PSEB registered,Work,Received date,Channel,Remittance ref,Currency,Amount,Gross PKR,Bank charges,Tax withheld,Net PKR,Certificate uploaded"];
+      var lines = ["Tax year,Invoice no,Client,Client country,Client outside Pakistan,Income type,Opt out (other services),Agent type,SRB registered,ATL status on receipt date,PSEB registered,Work,Received date,Channel,Remittance ref,Currency,Amount,Gross PKR,Bank charges,Tax withheld,Net PKR,Certificate uploaded,Client NTN,Withholding certificate no."];
       for (var i = 0; i < list.length; i++) {
         var inv = list[i];
         lines.push([
@@ -1002,13 +1083,13 @@
           csvCell(inv.atlStatus), csvCell(inv.psebReg), csvCell(inv.work), csvCell(inv.receivedDate), csvCell(inv.channel),
           csvCell(inv.remittanceRef), csvCell(inv.currency), csvCell(inv.amount),
           csvCell(Math.round(grossPKR(inv))), csvCell(inv.fees || 0), csvCell(inv.taxWithheld || 0),
-          csvCell(Math.round(netReceived(inv))), csvCell(inv.certificatePath ? "Yes" : "No")
+          csvCell(Math.round(netReceived(inv))), csvCell(inv.certificatePath ? "Yes" : "No"), csvCell(inv.ntn), csvCell(inv.certificateNo)
         ].join(","));
       }
       var t = yearTotals(list);
       lines.push(["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", csvCell("TOTAL"), "",
         csvCell(Math.round(t.gross)), csvCell(Math.round(t.fees)), csvCell(Math.round(t.tax)),
-        csvCell(Math.round(t.net)), ""].join(","));
+        csvCell(Math.round(t.net)), "", "", ""].join(","));
       var blob = new Blob([lines.join("\n")], { type: "text/csv" });
       var a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
